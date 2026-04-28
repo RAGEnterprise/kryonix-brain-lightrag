@@ -1,4 +1,4 @@
-﻿import os
+import os
 import logging
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
@@ -24,10 +24,15 @@ class SearchRequest(BaseModel):
     query: str
     mode: str = "hybrid"
     lang: str = "pt-BR"
+    no_cache: bool = False
+    debug: bool = False
 
 class SearchResponse(BaseModel):
-    answer: str
     status: str = "success"
+    answer: str
+    grounding: dict = {}
+    sources: list = []
+    warnings: list = []
 
 @app.get("/health")
 async def health():
@@ -47,8 +52,14 @@ async def stats(api_key: str = Depends(get_api_key)):
 async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
     try:
         logger.info(f"Searching: {req.query} (mode={req.mode}, lang={req.lang})")
-        answer = await rag_mod.query(req.query, mode=req.mode, lang=req.lang)
-        return SearchResponse(answer=answer)
+        res = await rag_mod.query(
+            req.query, 
+            mode=req.mode, 
+            lang=req.lang, 
+            no_cache=req.no_cache,
+            verbose=req.debug
+        )
+        return SearchResponse(**res)
     except Exception as e:
         logger.error(f"Error during search: {e}")
         raise HTTPException(status_code=500, detail=str(e))

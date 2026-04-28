@@ -326,7 +326,7 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
 
     return ranked_chunks
 
-async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False) -> str:
+async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False) -> dict:
     rag = await get_rag_async()
     target_lang = lang or RESPONSE_LANGUAGE
     
@@ -336,7 +336,8 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
     hops = strategy["hops"]
     top_k_chunks = strategy["top_k"]
     
-    console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
+    if verbose:
+        console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
     
     # 2. Expand query semanticamente
     expanded_query = await expand_query_semantically(term)
@@ -347,7 +348,11 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         data_res = await rag.aquery_data(expanded_query, param=params)
         
         if data_res.get("status") != "success":
-            return f"[ERRO] Falha na busca de dados: {data_res.get('message')}"
+            return {
+                "status": "error",
+                "answer": f"Falha na busca de dados: {data_res.get('message')}",
+                "warnings": ["Upstream query_data failed"]
+            }
             
         data = data_res.get("data", {})
         entities = data.get("entities", [])
@@ -357,12 +362,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         ranked_chunks = await _manual_grounding(entities, relations, expanded_query, hops=hops)
         
         if not ranked_chunks:
-            error_msg = "[ERRO] Nenhum chunk disponível para grounding. Abortando para evitar alucinação."
-            console.print(f"[red]{error_msg}[/red]")
-            return error_msg
+            return {
+                "status": "error",
+                "answer": "Nenhum chunk disponível para grounding. Abortando para evitar alucinação.",
+                "warnings": ["Grounding empty"]
+            }
             
         # 4. Construção do Contexto
-        # Limitamos ao top_k decidido na estratégia
         final_chunks = ranked_chunks[:top_k_chunks]
         
         context_str = "--- CONTEXTO DO GRAFO (ENTIDADES) ---\n"
@@ -374,30 +380,47 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             context_str += f"- {rel['src_id']} -> {rel['tgt_id']}: {rel['description']}\n"
             
         context_str += "\n--- CONTEXTO DE TEXTO (CHUNKS RANKED) ---\n"
+        sources = []
         for i, chunk in enumerate(final_chunks):
-            score_info = f" (Score: {round(chunk['score'], 3)})" if "score" in chunk else ""
+            score = chunk.get("score", 0.0)
+            score_info = f" (Score: {round(score, 3)})"
             context_str += f"[Chunk {i+1} from {chunk['file_path']}]{score_info}:\n{chunk['content']}\n\n"
+            sources.append({
+                "title": chunk["file_path"],
+                "chunk_id": chunk["chunk_id"],
+                "score": round(score, 3)
+            })
             
-        # Log final
-        console.print(f"[bold green]Final context: {len(entities)} entities, {len(relations)} relations, {len(final_chunks)} ranked chunks[/bold green]")
+        if verbose:
+            console.print(f"[bold green]Final context: {len(entities)} entities, {len(relations)} relations, {len(final_chunks)} ranked chunks[/bold green]")
         
         # 5. Resposta do LLM com Grounding Forçado
         system_prompt = f"Você é um assistente técnico especialista do Kryonix. Use o contexto fornecido para fornecer uma resposta precisa, técnica e acionável. Se a informação não estiver no contexto, diga claramente que não sabe. Responda em {target_lang}.\n\nCONTEXTO:\n{context_str}"
         prompt = f"Pergunta: {term}"
         
         answer = await llm_func(prompt, system_prompt=system_prompt)
-        return answer
-    except Exception as e:
-        console.print(f"[red][CRITICAL ERROR] Pipeline de busca falhou: {e}[/red]")
-        import traceback
-        if verbose: console.print(traceback.format_exc())
-        return f"Erro crítico no processamento da consulta: {e}"
         
+        return {
+            "status": "success",
+            "answer": answer,
+            "grounding": {
+                "entities": len(entities),
+                "relations": len(relations),
+                "chunks": len(final_chunks)
+            },
+            "sources": sources,
+            "warnings": []
+        }
     except Exception as e:
-        console.print(f"[red][CRITICAL ERROR] Pipeline de busca falhou: {e}[/red]")
-        import traceback
-        if verbose: console.print(traceback.format_exc())
-        return f"Erro crítico no processamento da consulta: {e}"
+        logger_error = str(e)
+        if verbose:
+            import traceback
+            console.print(traceback.format_exc())
+        return {
+            "status": "error",
+            "answer": f"Erro crítico no processamento da consulta: {logger_error}",
+            "warnings": [logger_error]
+        }
 
 async def get_query_context(term: str, mode: str = "hybrid") -> dict:
     """Retrieve raw context chunks that would be used for a query."""

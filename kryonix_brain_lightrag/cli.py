@@ -212,10 +212,38 @@ async def cmd_search(args):
 
     res = await rag_mod.query(args.term, mode=mode, lang=lang, verbose=verbose)
     
-    if getattr(args, "json", False):
-        print(json.dumps({"mode": mode, "answer": res}))
+    # Handle dict vs string return (backwards compatibility or new format)
+    if isinstance(res, dict):
+        answer = res.get("answer", "")
+        status = res.get("status", "success")
+        sources = res.get("sources", [])
+        grounding = res.get("grounding", {})
+        
+        if status == "error":
+            console.print(f"[red][ERRO][/red] {answer}")
+            return res
+            
+        if getattr(args, "json", False):
+            print(json.dumps(res))
+        else:
+            console.print(Markdown(answer))
+            
+            if sources:
+                console.print("\n[bold]Fontes Utilizadas:[/bold]")
+                for i, src in enumerate(sources[:5]): # Show top 5
+                    console.print(f"  {i+1}. {src['title']} (Score: {src['score']})")
+                if len(sources) > 5:
+                    console.print(f"  ... e mais {len(sources)-5} chunks.")
+            
+            if verbose and grounding:
+                console.print(f"\n[dim]Grounding: {grounding.get('entities')} ents, {grounding.get('relations')} rels, {grounding.get('chunks')} chunks[/dim]")
     else:
-        console.print(Markdown(res))
+        # Fallback for old string return
+        if getattr(args, "json", False):
+            print(json.dumps({"mode": mode, "answer": res}))
+        else:
+            console.print(Markdown(res))
+            
     return res
 
 async def cmd_cache(args):
@@ -558,8 +586,11 @@ async def cmd_shell(args):
             await cmd_show(FakeArgs())
             continue
 
-        ans = await rag_mod.query(query_text, mode=mode)
-        console.print(Markdown(ans))
+        res = await rag_mod.query(query_text, mode=mode)
+        if isinstance(res, dict):
+            console.print(Markdown(res.get("answer", "")))
+        else:
+            console.print(Markdown(res))
         console.print()
 
 

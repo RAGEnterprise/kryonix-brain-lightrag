@@ -101,7 +101,7 @@ def _apply_profile(name: str | None) -> dict:
     return PROFILES.get(name or "", PROFILES["safe"])
 
 # Active profile — resolved at import time from env
-_active_profile_name = os.getenv("LIGHTRAG_PROFILE_NAME", "safe")
+_active_profile_name = os.getenv("LIGHTRAG_PROFILE_NAME", "balanced")
 _p = _apply_profile(_active_profile_name)
 
 LLM_MODEL               = os.getenv("LIGHTRAG_LLM_MODEL",            _p["llm_model"])
