@@ -9,7 +9,7 @@ Pipeline LightRAG para indexar, consultar e exportar o knowledge graph do projet
 # Windows:
 tools\lightrag\.venv\Scripts\activate
 # Linux/macOS:
-source tools/lightrag/.venv/bin/activate
+source packages/kryonix-brain-lightrag/.venv/bin/activate
 
 # Indexar o projeto
 rag index --full

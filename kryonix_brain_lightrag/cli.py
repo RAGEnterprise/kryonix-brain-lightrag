@@ -584,15 +584,15 @@ async def cmd_mcp_check(args):
             console.print("[green][OK][/green] lightrag MCP entry found")
             entry = servers["lightrag"]
             entry_args = entry.get("args", [])
-            # Check if absolute path points to tools/lightrag
+            # Check if absolute path points to packages/kryonix-brain-lightrag
             project_arg = None
             for i, a in enumerate(entry_args):
                 if a == "--project" and i + 1 < len(entry_args):
                     project_arg = entry_args[i + 1]
-            if project_arg and "tools/lightrag" in project_arg.replace("\\", "/"):
-                console.print(f"[green][OK][/green] Path points to tools/lightrag ({project_arg})")
+            if project_arg and "packages/kryonix-brain-lightrag" in project_arg.replace("\\", "/"):
+                console.print(f"[green][OK][/green] Path points to packages/kryonix-brain-lightrag ({project_arg})")
             else:
-                console.print(f"[yellow][WARN][/yellow] Path may not point to tools/lightrag: {project_arg}")
+                console.print(f"[yellow][WARN][/yellow] Path may not point to packages/kryonix-brain-lightrag: {project_arg}")
         else:
             console.print("[red][FAIL][/red] lightrag entry missing in mcpServers")
     except json.JSONDecodeError:
@@ -775,7 +775,7 @@ async def cmd_ollama_check(args):
             console.print(f"[red][FAIL][/red] Embedding Error: {e}")
 
     else:
-        console.print("[green][OK][/green] No illegal storage in tools/lightrag/rag_storage")
+        console.print("[green][OK][/green] No illegal storage in packages/kryonix-brain-lightrag/rag_storage")
 
 async def cmd_storage_check(args):
     """Check storage constraints."""
@@ -791,7 +791,7 @@ async def cmd_storage_check(args):
         console.print(f"[red][FAIL][/red] Illegal storage found: {bad_dir}")
         sys.exit(1)
     else:
-        console.print("[green][OK][/green] No illegal storage in tools/lightrag/rag_storage")
+        console.print("[green][OK][/green] No illegal storage in packages/kryonix-brain-lightrag/rag_storage")
 
 async def cmd_test(args):
     """Run all tests."""
