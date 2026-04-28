@@ -29,7 +29,7 @@ class SearchResponse(BaseModel):
     status: str = "success"
 
 @app.get("/health")
-async def health(api_key: str = Depends(get_api_key)):
+async def health():
     from .config import WORKING_DIR
     return {"status": "ok", "storage": str(WORKING_DIR)}
 
