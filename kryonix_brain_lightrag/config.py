@@ -27,7 +27,6 @@ VAULT_INCLUDE_DIRS = [
     "03-Projetos",
     "06-Playbooks",
     "07-Prompts",
-    "11-LightRAG/graph-export"
 ]
 
 VAULT_EXCLUDE_DIRS = [

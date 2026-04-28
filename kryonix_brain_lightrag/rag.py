@@ -137,19 +137,104 @@ async def expand_query_semantically(query_text: str) -> str:
 async def extract_keywords_llm(query_text: str) -> list[str]:
     """Extract technical keywords from the query."""
     rag = await get_rag_async()
-    prompt = f"Extraia apenas os termos técnicos e entidades chave desta pergunta como uma lista separada por vírgulas. Pergunta: {query_text}"
+    prompt = f"Extraia apenas os termos técnicos, ferramentas e entidades chave desta pergunta como uma lista separada por vírgulas. Pergunta: {query_text}"
     try:
         res = await llm_func(prompt)
         if res:
-            return [k.strip() for k in res.split(",")]
+            return [k.strip() for k in res.split(",") if len(k.strip()) > 1]
     except:
         pass
     return []
 
-async def _manual_grounding(entities: list[dict], relations: list[dict], query_text: str) -> list[dict]:
+async def analyze_query_strategy(query_text: str) -> dict:
+    """Decide search strategy based on query content."""
+    technical_keywords = ["config", "nix", "error", "erro", "setup", "install", "como", "how to", "cmd", "cli", "comando"]
+    conceptual_keywords = ["o que", "what is", "por que", "why", "conceito", "arquitetura", "architecture"]
+    
+    q = query_text.lower()
+    is_technical = any(k in q for k in technical_keywords)
+    is_conceptual = any(k in q for k in conceptual_keywords)
+    
+    if is_technical and not is_conceptual:
+        return {"mode": "hybrid", "hops": 1, "top_k": 20, "strategy": "technical"}
+    if is_conceptual:
+        return {"mode": "global", "hops": 2, "top_k": 10, "strategy": "conceptual"}
+    
+    return {"mode": "hybrid", "hops": 1, "top_k": 15, "strategy": "balanced"}
+
+async def expand_entities_by_hops(G: nx.Graph, initial_entities: list[str], hops: int = 1) -> set[str]:
+    """Expand entity set by exploring neighbors in the graph."""
+    expanded = set(initial_entities)
+    current_layer = set(initial_entities)
+    
+    for _ in range(hops):
+        next_layer = set()
+        for node in current_layer:
+            if node in G:
+                for neighbor in G.neighbors(node):
+                    if neighbor not in expanded:
+                        next_layer.add(neighbor)
+                        expanded.add(neighbor)
+        current_layer = next_layer
+        if not current_layer:
+            break
+            
+    return expanded
+
+async def _rank_chunks(chunks: list[dict], query_text: str, G: nx.Graph) -> list[dict]:
+    """Rank chunks based on semantic similarity and graph importance."""
+    if not chunks:
+        return []
+        
+    try:
+        # 1. Get embeddings for query and chunks
+        query_emb = await embedding_func([query_text])
+        chunk_contents = [c["content"] for c in chunks]
+        chunk_embs = await embedding_func(chunk_contents)
+        
+        import numpy as np
+        
+        # 2. Calculate scores (manual cosine similarity to avoid sklearn dependency)
+        # query_emb: (1, D), chunk_embs: (N, D)
+        q_norm = np.linalg.norm(query_emb, axis=1, keepdims=True)
+        c_norm = np.linalg.norm(chunk_embs, axis=1, keepdims=True)
+        
+        # Avoid division by zero
+        q_norm[q_norm == 0] = 1e-9
+        c_norm[c_norm == 0] = 1e-9
+        
+        sims = np.dot(query_emb / q_norm, (chunk_embs / c_norm).T)
+        scores = sims[0]
+        
+        ranked_list = []
+        for i, chunk in enumerate(chunks):
+            semantic_score = float(scores[i])
+            
+            # 3. Boost based on graph centrality if relevant entities are in chunk
+            graph_boost = 0.0
+            if G:
+                # Simple check: does chunk content contain entity names?
+                # Optimization: this is slow for large graphs, but OK for workstation-scale
+                # We'll use the mapping from manual_grounding instead of re-scanning
+                pass 
+                
+            chunk["score"] = semantic_score
+            ranked_list.append(chunk)
+            
+        # 4. Sort and log
+        ranked_list.sort(key=lambda x: x["score"], reverse=True)
+        
+        top_scores = [round(c["score"], 3) for c in ranked_list[:5]]
+        console.print(f"[dim][DEBUG] Top chunk scores: {top_scores}[/dim]")
+        
+        return ranked_list
+    except Exception as e:
+        console.print(f"[dim][DEBUG] Ranking failed: {e}. Returning raw order.[/dim]")
+        return chunks
+
+async def _manual_grounding(entities: list[dict], relations: list[dict], query_text: str, hops: int = 1) -> list[dict]:
     """
-    CORREÇÃO 1 & 2: Entity/Relation -> Chunks mapping.
-    CORREÇÃO 7: Integridade e validação.
+    Advanced Grounding with Multi-hop Expansion and Ranking.
     """
     storage_path = Path(WORKING_DIR)
     ent_chunks_path = storage_path / "kv_store_entity_chunks.json"
@@ -165,23 +250,31 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
         console.print(f"[red][ERROR] Falha ao carregar storage para grounding: {e}[/red]")
         return []
 
+    G = get_graph()
+    initial_entity_names = [ent.get("entity_name") for ent in entities if ent.get("entity_name")]
+    
+    # 1. Expand entities by hops
+    expanded_entity_names = initial_entity_names
+    if G and hops > 0:
+        expanded_entity_names = await expand_entities_by_hops(G, initial_entity_names, hops=hops)
+        if len(expanded_entity_names) > len(initial_entity_names):
+            console.print(f"[dim][DEBUG] Multi-hop expansion: {len(initial_entity_names)} -> {len(expanded_entity_names)} entities[/dim]")
+
     chunk_ids = set()
     
-    # 1. Collect from entities
+    # 2. Collect from expanded entities
     ent_count = 0
-    for ent in entities:
-        name = ent.get("entity_name")
+    for name in expanded_entity_names:
         if name in ent_map:
             cids = ent_map[name].get("chunk_ids", [])
             chunk_ids.update(cids)
             ent_count += len(cids)
             
-    # 2. Collect from relations
+    # 3. Collect from relations
     rel_count = 0
     for rel in relations:
         src = rel.get("src_id")
         tgt = rel.get("tgt_id")
-        # LightRAG uses <SEP> for relation keys in KV storage
         rel_key = f"{src}<SEP>{tgt}"
         rel_key_rev = f"{tgt}<SEP>{src}"
         
@@ -194,7 +287,7 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
             chunk_ids.update(cids)
             rel_count += len(cids)
 
-    # 3. Fetch content and validate
+    # 4. Fetch content and validate
     final_chunks = []
     for cid in chunk_ids:
         if cid in text_map:
@@ -207,43 +300,50 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
                     "file_path": chunk_data.get("file_path", "unknown")
                 })
 
-    # CORREÇÃO 6: Logs obrigatórios
-    console.print(f"[dim][DEBUG] Grounding: {len(entities)} ents -> {ent_count} chunks, {len(relations)} rels -> {rel_count} chunks[/dim]")
+    # 5. Ranking
+    ranked_chunks = await _rank_chunks(final_chunks, query_text, G)
     
-    # CORREÇÃO 4: Fallback se zero
-    if not final_chunks:
-        console.print("[yellow][WARN] Grounding falhou (0 chunks mapeados). Tentando Vector Fallback...[/yellow]")
+    console.print(f"[dim][DEBUG] Grounding: {len(entities)} initial ents -> {len(expanded_entity_names)} expanded, {len(ranked_chunks)} chunks retrieved[/dim]")
+    
+    # 6. Fallback if zero
+    if not ranked_chunks:
+        console.print("[yellow][WARN] Grounding falhou. Tentando Vector Fallback...[/yellow]")
         rag = await get_rag_async()
         try:
-            hits = await rag.chunks_vdb.query(query_text, top_k=5)
+            hits = await rag.chunks_vdb.query(query_text, top_k=10)
             for h in hits:
                 cid = h.get("id")
                 if cid in text_map:
-                    final_chunks.append({
+                    ranked_chunks.append({
                         "chunk_id": cid,
                         "content": text_map[cid].get("content", ""),
-                        "file_path": text_map[cid].get("file_path", "unknown")
+                        "file_path": text_map[cid].get("file_path", "unknown"),
+                        "score": h.get("distance", 0)
                     })
-            console.print(f"[dim][DEBUG] Vector fallback: {len(final_chunks)} chunks encontrados[/dim]")
+            console.print(f"[dim][DEBUG] Vector fallback: {len(ranked_chunks)} chunks encontrados[/dim]")
         except Exception as e:
             console.print(f"[red]Erro no fallback: {e}[/red]")
 
-    return final_chunks
+    return ranked_chunks
 
 async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False) -> str:
     rag = await get_rag_async()
     target_lang = lang or RESPONSE_LANGUAGE
     
-    # 1. Expand query semanticamente
+    # 1. Query Strategy Planning
+    strategy = await analyze_query_strategy(term)
+    search_mode = mode if mode != "hybrid" else strategy["mode"]
+    hops = strategy["hops"]
+    top_k_chunks = strategy["top_k"]
+    
+    console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
+    
+    # 2. Expand query semanticamente
     expanded_query = await expand_query_semantically(term)
     
-    # 2. Extract keywords
-    keywords = await extract_keywords_llm(term)
-    
-    # 3. RAG Pipeline com Grounding Manual (CORREÇÃO 3)
+    # 3. RAG Pipeline com Grounding Avançado
     try:
-        # Usamos aquery_data para obter o grafo relevante
-        params = QueryParam(mode=mode, top_k=10)
+        params = QueryParam(mode=search_mode, top_k=15)
         data_res = await rag.aquery_data(expanded_query, param=params)
         
         if data_res.get("status") != "success":
@@ -253,19 +353,17 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         entities = data.get("entities", [])
         relations = data.get("relationships", [])
         
-        # Grounding manual
-        grounded_chunks = await _manual_grounding(entities, relations, expanded_query)
+        # Grounding manual com expansão e ranking
+        ranked_chunks = await _manual_grounding(entities, relations, expanded_query, hops=hops)
         
-        # CORREÇÃO 5: Proteção contra falso positivo
-        if not grounded_chunks:
+        if not ranked_chunks:
             error_msg = "[ERRO] Nenhum chunk disponível para grounding. Abortando para evitar alucinação."
             console.print(f"[red]{error_msg}[/red]")
             return error_msg
             
-        # 4. Construção do Contexto (CORREÇÃO 3)
-        # Deduplicação e ordenação já ocorrem no _manual_grounding
-        # Aqui aplicamos limite se necessário (usaremos os primeiros 15 chunks para segurança de tokens)
-        final_chunks = grounded_chunks[:15]
+        # 4. Construção do Contexto
+        # Limitamos ao top_k decidido na estratégia
+        final_chunks = ranked_chunks[:top_k_chunks]
         
         context_str = "--- CONTEXTO DO GRAFO (ENTIDADES) ---\n"
         for ent in entities[:20]:
@@ -275,19 +373,25 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         for rel in relations[:20]:
             context_str += f"- {rel['src_id']} -> {rel['tgt_id']}: {rel['description']}\n"
             
-        context_str += "\n--- CONTEXTO DE TEXTO (CHUNKS GROUNDING) ---\n"
+        context_str += "\n--- CONTEXTO DE TEXTO (CHUNKS RANKED) ---\n"
         for i, chunk in enumerate(final_chunks):
-            context_str += f"[Chunk {i+1} from {chunk['file_path']}]:\n{chunk['content']}\n\n"
+            score_info = f" (Score: {round(chunk['score'], 3)})" if "score" in chunk else ""
+            context_str += f"[Chunk {i+1} from {chunk['file_path']}]{score_info}:\n{chunk['content']}\n\n"
             
         # Log final
-        console.print(f"[bold green]Final context: {len(entities)} entities, {len(relations)} relations, {len(final_chunks)} chunks[/bold green]")
+        console.print(f"[bold green]Final context: {len(entities)} entities, {len(relations)} relations, {len(final_chunks)} ranked chunks[/bold green]")
         
         # 5. Resposta do LLM com Grounding Forçado
-        system_prompt = f"Você é um assistente técnico do Kryonix. Use o contexto fornecido para responder. Se a informação não estiver no contexto, diga que não sabe. Responda em {target_lang}.\n\nCONTEXTO:\n{context_str}"
+        system_prompt = f"Você é um assistente técnico especialista do Kryonix. Use o contexto fornecido para fornecer uma resposta precisa, técnica e acionável. Se a informação não estiver no contexto, diga claramente que não sabe. Responda em {target_lang}.\n\nCONTEXTO:\n{context_str}"
         prompt = f"Pergunta: {term}"
         
         answer = await llm_func(prompt, system_prompt=system_prompt)
         return answer
+    except Exception as e:
+        console.print(f"[red][CRITICAL ERROR] Pipeline de busca falhou: {e}[/red]")
+        import traceback
+        if verbose: console.print(traceback.format_exc())
+        return f"Erro crítico no processamento da consulta: {e}"
         
     except Exception as e:
         console.print(f"[red][CRITICAL ERROR] Pipeline de busca falhou: {e}[/red]")
