@@ -474,7 +474,7 @@ async def cmd_index(args):
         env["LIGHTRAG_INDEX_BATCH_SIZE"] = "1"
         env["LIGHTRAG_INDEX_HEARTBEAT_SECONDS"] = "15"
 
-    tool_dir = config.PROJECT_DIR / "tools" / "lightrag"
+    tool_dir = config.PROJECT_DIR / "packages" / "kryonix-brain-lightrag"
     subprocess.run(cmd_args, cwd=str(tool_dir), env=env)
 
 
@@ -485,7 +485,7 @@ async def cmd_export(args):
     cmd_args = [sys.executable, "-m", "kryonix_brain_lightrag.to_obsidian"]
     if args.clean:
         cmd_args.append("--clean")
-    tool_dir = config.PROJECT_DIR / "tools" / "lightrag"
+    tool_dir = config.PROJECT_DIR / "packages" / "kryonix-brain-lightrag"
     subprocess.run(cmd_args, cwd=str(tool_dir))
 
 
@@ -580,9 +580,10 @@ async def cmd_mcp_check(args):
         with open(mcp_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         servers = data.get("mcpServers", {})
-        if "lightrag" in servers:
-            console.print("[green][OK][/green] lightrag MCP entry found")
-            entry = servers["lightrag"]
+        if "lightrag" in servers or "kryonix-brain" in servers:
+            name = "lightrag" if "lightrag" in servers else "kryonix-brain"
+            console.print(f"[green][OK][/green] {name} MCP entry found")
+            entry = servers[name]
             entry_args = entry.get("args", [])
             # Check if absolute path points to packages/kryonix-brain-lightrag
             project_arg = None
@@ -651,7 +652,7 @@ async def cmd_doctor(args):
         
     cloud_words = ["gemini", "openai", "anthropic", "voyage", "GOOGLE_API_KEY", "OPENAI_API_KEY", "0.0.0.0"]
     found_cloud = False
-    for root, _, files in os.walk(config.PROJECT_DIR / "tools" / "lightrag" / "kryonix_brain_lightrag"):
+    for root, _, files in os.walk(config.PROJECT_DIR / "packages" / "kryonix-brain-lightrag" / "kryonix_brain_lightrag"):
         for file in files:
             if file.endswith(".py"):
                 with open(os.path.join(root, file), "r", encoding="utf-8") as f:
@@ -788,10 +789,11 @@ async def cmd_storage_check(args):
         
     bad_dir = config.PROJECT_DIR / "tools" / "lightrag" / "rag_storage"
     if bad_dir.exists():
-        console.print(f"[red][FAIL][/red] Illegal storage found: {bad_dir}")
+        console.print(f"[red][FAIL][/red] Illegal storage found in old location: {bad_dir}")
+        console.print("       Por favor, apague ferramentas/lightrag/rag_storage")
         sys.exit(1)
     else:
-        console.print("[green][OK][/green] No illegal storage in packages/kryonix-brain-lightrag/rag_storage")
+        console.print("[green][OK][/green] No illegal storage in old location")
 
 async def cmd_test(args):
     """Run all tests."""
@@ -803,7 +805,7 @@ async def cmd_test(args):
     console.print("\n[test] 1/8: Pytest (unit/integration)[/test]")
     # Use python -m pytest to ensure correct environment
     pytest_cmd = [sys.executable, "-m", "pytest", "-q"]
-    res = subprocess.run(pytest_cmd, cwd=str(config.PROJECT_DIR / "tools" / "lightrag"))
+    res = subprocess.run(pytest_cmd, cwd=str(config.PROJECT_DIR / "packages" / "kryonix-brain-lightrag"))
     results.append(("Pytest", res.returncode == 0))
     
     # 2. Doctor
