@@ -17,12 +17,15 @@ dependencies = [
     "google-genai>=1.0.0",
     "openai>=1.50.0",
     "ollama>=0.6.1",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
 ]
 
 [project.scripts]
 # Low-level (usado pelo MCP e pelos hooks)
 kg-server      = "kryonix_brain_lightrag.server:main"
 kg-index       = "kryonix_brain_lightrag.index:main"
+kg-api         = "kryonix_brain_lightrag.api:main"
 kg-to-obsidian = "kryonix_brain_lightrag.to_obsidian:main"
 
 # High-level CLI unificado pro usuário final
