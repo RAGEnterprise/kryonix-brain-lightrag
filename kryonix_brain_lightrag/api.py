@@ -1,10 +1,11 @@
-import os
+﻿import os
+import logging
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 from . import rag as rag_mod
 
-# Configuração de log
+# ConfiguraÃ§Ã£o de log
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kryonix-brain-api")
 
@@ -14,7 +15,7 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 async def get_api_key(api_key: str = Depends(api_key_header)):
     expected_key = os.getenv("KRYONIX_BRAIN_KEY")
     if expected_key and api_key != expected_key:
-        raise HTTPException(status_code=403, detail="Acesso negado: API Key inválida")
+        raise HTTPException(status_code=403, detail="Acesso negado: API Key invÃ¡lida")
     return api_key
 
 app = FastAPI(title="Kryonix Brain API")
