@@ -11,11 +11,13 @@ from ollama import AsyncClient
 from lightrag.utils import wrap_embedding_func_with_attrs
 
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-LIGHTRAG_LLM_MODEL = os.getenv("LIGHTRAG_LLM_MODEL", "qwen2.5-coder:3b")
-LIGHTRAG_EMBED_MODEL = os.getenv("LIGHTRAG_EMBED_MODEL", "nomic-embed-text:latest")
-PROFILE = os.getenv("LIGHTRAG_PROFILE", "")
-VERBOSE = os.getenv("LIGHTRAG_VERBOSE", "0") == "1"
+from . import config
+
+OLLAMA_BASE_URL = config.OLLAMA_BASE_URL
+LIGHTRAG_LLM_MODEL = config.LLM_MODEL
+LIGHTRAG_EMBED_MODEL = config.EMBEDDING_MODEL
+PROFILE = config.PROFILE
+VERBOSE = config.VERBOSE
 
 
 def _client() -> AsyncClient:

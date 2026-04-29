@@ -115,6 +115,9 @@ INDEX_BATCH_SIZE        = int(os.getenv("LIGHTRAG_INDEX_BATCH_SIZE",      str(_p
 INDEX_HEARTBEAT_SECONDS = int(os.getenv("LIGHTRAG_INDEX_HEARTBEAT_SECONDS", "15"))
 MAX_FILE_SIZE_FIRST_RUN_KB = int(os.getenv("LIGHTRAG_MAX_FILE_SIZE_FIRST_RUN_KB", "250"))
 
+PROFILE = os.getenv("LIGHTRAG_PROFILE", "")
+VERBOSE = os.getenv("LIGHTRAG_VERBOSE", "0") == "1"
+
 # ── State files ───────────────────────────────────────────────────
 FAILED_INDEX_FILE       = Path(os.getenv("LIGHTRAG_FAILED_INDEX_FILE",
                                str(VAULT_DIR / "11-LightRAG" / "failed_index_files.json")))

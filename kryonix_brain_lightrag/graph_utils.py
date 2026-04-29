@@ -10,7 +10,7 @@ from .config import (
     VAULT_DIR, WORKING_DIR, OBSIDIAN_EXPORT_DIR,
     VAULT_EXCLUDE_DIRS
 )
-from .rag import get_graph, get_rag_async
+# Removed top-level .rag import to avoid circular dependencies
 import xml.etree.ElementTree as ET
 
 # Re-use logic from generate_mocs.py script but as a library
@@ -102,21 +102,52 @@ def atomic_write_graphml(G: nx.Graph, path: Path):
     valid, err = validate_graphml(tmp_path)
     if not valid:
         if tmp_path.exists(): tmp_path.unlink()
-        raise IOError(f"Falha na validação atômica: {err}")
+        raise IOError(f"Falha na validação atômica do Grafo: {err}")
         
-    # 3. Backup original
+    # 3. Backup original (limit to one backup here, rotating is handled elsewhere)
     if path.exists():
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = path.with_suffix(f".bak-{ts}.graphml")
         shutil.copy2(path, backup)
         
     # 4. Replace
-    if os.name == 'nt' and path.exists():
-        # Windows replace
-        path.unlink()
-        tmp_path.rename(path)
-    else:
-        tmp_path.replace(path)
+    try:
+        if os.name == 'nt' and path.exists():
+            # Windows: use replace which is mostly atomic, but handle existing
+            os.replace(str(tmp_path), str(path))
+        else:
+            tmp_path.replace(path)
+    except Exception as e:
+        # Fallback to non-atomic if replace fails
+        if tmp_path.exists():
+            shutil.move(str(tmp_path), str(path))
+
+def atomic_write_json(data: dict, path: Path):
+    """Write JSON atomically with validation."""
+    tmp_path = path.with_suffix(".tmp.json")
+    
+    # 1. Write to tmp
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    # 2. Validate tmp
+    if tmp_path.stat().st_size == 0:
+        if tmp_path.exists(): tmp_path.unlink()
+        raise IOError("Falha na validação atômica do JSON: Arquivo vazio.")
+    
+    try:
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            json.load(f)
+    except Exception as e:
+        if tmp_path.exists(): tmp_path.unlink()
+        raise IOError(f"Falha na validação atômica do JSON: {e}")
+
+    # 3. Replace
+    try:
+        os.replace(str(tmp_path), str(path))
+    except Exception:
+        if tmp_path.exists():
+            shutil.move(str(tmp_path), str(path))
 
 def cluster_entities(G: nx.Graph):
     clusters = {"Desktop": [], "NixOS": [], "CLI": [], "Infra": [], "Kryonix": []}

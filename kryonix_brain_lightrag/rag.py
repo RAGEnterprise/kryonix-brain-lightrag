@@ -27,6 +27,74 @@ from .llm import embedding_func, llm_func
 from rich.console import Console
 console = Console()
 
+# ── Persistence Hardening (Monkey-Patching) ───────────────────────
+
+def _apply_persistence_hardening():
+    """Apply atomic write patches to LightRAG and NanoVectorDB."""
+    from .graph_utils import atomic_write_graphml, atomic_write_json
+    import lightrag.kg.networkx_impl as nx_impl
+    import nano_vectordb.dbs as nano_vdb_dbs
+    import networkx as nx
+    import json
+    import os
+
+    # 1. Patch NetworkXStorage
+    original_write_nx = nx_impl.NetworkXStorage.write_nx_graph
+    
+    @staticmethod
+    def hardened_write_nx_graph(graph: nx.Graph, file_name, workspace="_"):
+        console.print(f"[dim][HARDEN] Atomic write for graph: {file_name}[/dim]")
+        try:
+            atomic_write_graphml(graph, Path(file_name))
+        except Exception as e:
+            console.print(f"[red][ERROR] Atomic write failed for graph: {e}. Falling back to original.[/red]")
+            original_write_nx(graph, file_name, workspace)
+
+    nx_impl.NetworkXStorage.write_nx_graph = hardened_write_nx_graph
+
+    # 2. Patch NanoVectorDB
+    original_save_vdb = nano_vdb_dbs.NanoVectorDB.save
+    
+    def hardened_save_vdb(self):
+        console.print(f"[dim][HARDEN] Atomic save for VDB: {self.storage_file}[/dim]")
+        try:
+            # Accessing private member via name mangling
+            raw_storage = getattr(self, f"_{self.__class__.__name__}__storage")
+            storage = {
+                **raw_storage,
+                "matrix": nano_vdb_dbs.array_to_buffer_string(raw_storage["matrix"]),
+            }
+            atomic_write_json(storage, Path(self.storage_file))
+        except Exception as e:
+            console.print(f"[red][ERROR] Atomic save failed for VDB: {e}. Falling back to original.[/red]")
+            original_save_vdb(self)
+
+    nano_vdb_dbs.NanoVectorDB.save = hardened_save_vdb
+
+    # 3. Patch lightrag.utils.write_json (used by JsonKVStorage)
+    import lightrag.utils as lr_utils
+    original_write_json = lr_utils.write_json
+
+    def hardened_write_json(json_obj, file_name):
+        console.print(f"[dim][HARDEN] Atomic write for KV: {file_name}[/dim]")
+        try:
+            atomic_write_json(json_obj, Path(file_name))
+            return False # Original returns True if sanitization was applied, False otherwise. 
+                         # We'll return False and assume our atomic write is clean.
+        except Exception as e:
+            console.print(f"[red][ERROR] Atomic write failed for KV: {e}. Falling back to original.[/red]")
+            return original_write_json(json_obj, file_name)
+
+    lr_utils.write_json = hardened_write_json
+    
+    console.print("[green][SYSTEM] Persistence hardening applied (Atomic Writes enabled).[/green]")
+
+# Apply immediately on import
+try:
+    _apply_persistence_hardening()
+except Exception as e:
+    console.print(f"[yellow][WARN] Could not apply persistence hardening: {e}[/yellow]")
+
 
 _rag_instance: LightRAG | None = None
 
@@ -294,10 +362,17 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
             chunk_data = text_map[cid]
             content = chunk_data.get("content", "").strip()
             if content:
+                # Recover file_path from content wrapper if missing
+                file_path = chunk_data.get("file_path", "unknown")
+                if file_path in ["unknown", "unknown_source"] or not file_path:
+                    m = re.search(r'FILE:\s*(.*)', content)
+                    if m:
+                        file_path = m.group(1).strip()
+                
                 final_chunks.append({
                     "chunk_id": cid,
                     "content": content,
-                    "file_path": chunk_data.get("file_path", "unknown")
+                    "file_path": file_path
                 })
 
     # 5. Ranking
@@ -314,10 +389,16 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
             for h in hits:
                 cid = h.get("id")
                 if cid in text_map:
+                    content = text_map[cid].get("content", "")
+                    file_path = text_map[cid].get("file_path", "unknown")
+                    if file_path in ["unknown", "unknown_source"] or not file_path:
+                        m = re.search(r'FILE:\s*(.*)', content)
+                        if m: file_path = m.group(1).strip()
+                        
                     ranked_chunks.append({
                         "chunk_id": cid,
-                        "content": text_map[cid].get("content", ""),
-                        "file_path": text_map[cid].get("file_path", "unknown"),
+                        "content": content,
+                        "file_path": file_path,
                         "score": h.get("distance", 0)
                     })
             console.print(f"[dim][DEBUG] Vector fallback: {len(ranked_chunks)} chunks encontrados[/dim]")
@@ -395,9 +476,21 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             console.print(f"[bold green]Final context: {len(entities)} entities, {len(relations)} relations, {len(final_chunks)} ranked chunks[/bold green]")
         
         # 5. Resposta do LLM com Grounding Forçado
-        system_prompt = f"Você é um assistente técnico especialista do Kryonix. Use o contexto fornecido para fornecer uma resposta precisa, técnica e acionável. Se a informação não estiver no contexto, diga claramente que não sabe. Responda em {target_lang}.\n\nCONTEXTO:\n{context_str}"
+        system_prompt = (
+            f"Você é Antigravity, o assistente técnico especialista em NixOS e IA do projeto Kryonix.\n"
+            f"Seu objetivo é fornecer respostas precisas, técnicas e acionáveis baseadas EXCLUSIVAMENTE no contexto fornecido.\n"
+            f"Regras:\n"
+            f"1. Responda em {target_lang}.\n"
+            f"2. Use o contexto de ENTIDADES, RELAÇÕES e CHUNKS abaixo.\n"
+            f"3. Se a informação não estiver no contexto, diga claramente 'Não encontrei informações específicas sobre isso no meu cérebro técnico'.\n"
+            f"4. Cite os arquivos de origem (ex: [FILE: path/to/file.nix]) quando mencionar algo vindo deles.\n"
+            f"5. Preserve comandos, paths e nomes de módulos Nix no original.\n"
+            f"6. Não mencione OpenAI, GPT ou modelos genéricos se não estiverem no contexto.\n\n"
+            f"CONTEXTO:\n{context_str}"
+        )
         prompt = f"Pergunta: {term}"
         
+        # no_cache support could be added here if llm_func supported it
         answer = await llm_func(prompt, system_prompt=system_prompt)
         
         return {

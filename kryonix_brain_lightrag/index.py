@@ -138,6 +138,47 @@ def _check_storage_clean() -> None:
             pass
 
 
+def _ensure_storage_health() -> None:
+    """Check for obvious corruption (0-byte files, invalid XML/JSON) and report."""
+    if not WORKING_DIR.exists():
+        return
+
+    from .graph_utils import validate_graphml
+    graph_file = WORKING_DIR / "graph_chunk_entity_relation.graphml"
+    
+    corrupted = []
+
+    if graph_file.exists():
+        valid, err = validate_graphml(graph_file)
+        if not valid:
+            corrupted.append((graph_file, err))
+
+    # Check VDBs
+    for vdb in ["vdb_entities.json", "vdb_relationships.json", "vdb_chunks.json"]:
+        p = WORKING_DIR / vdb
+        if p.exists():
+            if p.stat().st_size == 0:
+                corrupted.append((p, "Arquivo vazio (0 bytes)."))
+            else:
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        json.load(f)
+                except Exception as e:
+                    corrupted.append((p, f"JSON inválido: {e}"))
+
+    if corrupted:
+        print("\n[CRITICAL] CORRUPÇÃO DE ARMAZENAMENTO DETECTADA!")
+        for p, err in corrupted:
+            print(f"  - {p.name}: {err}")
+        print("\nO gráfico ou banco de vetores foi corrompido (provavelmente por interrupção brusca).")
+        print("Tente recuperar usando:")
+        print("  .\\rag.bat repair-graph")
+        print("Ou restaure um backup manual em:")
+        print(f"  {WORKING_DIR}")
+        print("\nO processo será encerrado para evitar propagação da corrupção.")
+        sys.exit(1)
+
+
 # ── Helpers ──────────────────────────────────────────────────────
 
 def _file_hash(path: str) -> str:
@@ -1068,6 +1109,9 @@ async def cmd_index(args_obj=None) -> None:
     if get_arg("repair_vdb"):
         await cmd_repair_vdb()
         return
+
+    # Pre-flight health check
+    _ensure_storage_health()
 
     if INDEX_LOCK_FILE.exists():
         stale = False
