@@ -67,7 +67,7 @@ async def cmd_graph(args):
 
 async def cmd_brain(args):
     """Brain orchestration."""
-    sync_log = config.VAULT_DIR / "logs" / "brain-sync.log"
+    sync_log = config.BRAIN_HOME / "logs" / "brain-sync.log"
     
     def log_sync(msg):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -135,7 +135,7 @@ async def cmd_brain(args):
 
 async def cmd_brain_watch(args):
     """Simple polling watcher."""
-    log_file = config.VAULT_DIR / "logs" / "brain-watch.log"
+    log_file = config.BRAIN_HOME / "logs" / "brain-watch.log"
     console.print(f"[bold yellow]Brain Watcher ativo.[/bold yellow] Monitorando mudanças (debounce 10s)...")
     console.print(f"Logs em: {log_file}")
     
