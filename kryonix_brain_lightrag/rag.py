@@ -114,26 +114,22 @@ def slugify(text: str) -> str:
 # ── Prompts ──────────────────────────────────────────────────────
 ENTITY_EXTRACTION_PROMPT = """-Goal-
 Given a text document that is potentially relevant to this project, your task is to identify all entities and their relationships with high semantic density.
+We need a RICHER graph. Do not be afraid to extract multiple entities and many relationships per chunk.
 
 -Steps-
 1. Identify all entities. For each entity, extract:
    - name: name of the entity, capitalized
-   - type: type of the entity (e.g., ORGANIZATION, PERSON, TECHNOLOGY, CONFIG, FILE, MODULE, FUNCTION, etc.)
+   - type: type of the entity (e.g., ORGANIZATION, PERSON, TECHNOLOGY, CONFIG, FILE, MODULE, FUNCTION, HARDWARE, ARCHITECTURE, etc.)
    - description: comprehensive summary of the entity's role and importance.
 
 2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are related.
-   Focus on FUNCTIONAL and ARCHITECTURAL relationships. Prioritize:
-   - DEPENDENCY: source depends on target to function
-   - COMPOSITION: source is part of or contains target
-   - USAGE: source uses or invokes target
-   - EXECUTION CONTEXT: source runs within or is managed by target
-   - CONFIGURATION: source configures target
-
-   For each relationship, extract:
+   Focus on FUNCTIONAL, ARCHITECTURAL, and CONCEPTUAL relationships.
+   For each relationship, identify:
    - source: name of the source entity
    - target: name of the target entity
+   - relationship: a clear action or connection (verb or phrase)
    - description: explain the EXACT functional relationship
-   - keywords: specific relationship type (e.g. depends_on, implements, manages, configures, part_of, uses)
+   - keywords: specific relationship type (e.g. depends_on, implements, manages, configures, part_of, uses, relates_to, defines)
    - weight: an integer from 1 to 10.
 
 3. Output the results in the following STRICT format:
@@ -142,8 +138,12 @@ relation<|#|>source_entity<|#|>target_entity<|#|>relationship_keywords<|#|>relat
 
 -Rules-
 - Output only the lines in the specified format. No intro/outro.
-- Avoid generic relationships.
+- EVERY chunk MUST have at least 2 entities and 1 relationship if possible.
+- If no clear relationship exists, create a "relates_to" relationship between the main entity and the most relevant context.
 - IMPORTANT: When finished, you MUST output the exact string "<|COMPLETE|>" on a new line.
+
+-Data-
+{input_text}
 """
 
 def _get_rag() -> LightRAG:

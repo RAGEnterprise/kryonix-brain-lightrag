@@ -39,42 +39,37 @@ def _message_content(response: Any) -> str:
 
 def validate_extraction(content: str) -> bool:
     """
-    Validates that the extraction output follows the LightRAG schema.
-    ENTITIES: ("entity"<name>, <type>, <description>) -> 3 fields
-    RELATIONS: ("relationship"<src>, <tgt>, <desc>, <keywords>, <weight>) -> 5 fields
+    Validates that the extraction output follows the Kryonix LightRAG schema.
+    Format: entity<|#|>name<|#|>type<|#|>description
+    Format: relation<|#|>src<|#|>tgt<|#|>keywords<|#|>description
     """
     lines = content.splitlines()
+    has_entity = False
+    has_relation = False
+    
     for line in lines:
         line = line.strip()
         if not line:
             continue
         
         # Check RELATION
-        if '("relationship"<' in line:
-            # Count commas inside parentheses to ensure exactly 5 fields (4 commas)
-            # Standard: ("relationship"<source_id>, <target_id>, <description>, <keywords>, <weight>)
-            match = re.search(r'\("relationship"<(.*?)>\)', line)
-            if match:
-                inner = match.group(1)
-                # This is a bit naive because descriptions can have commas. 
-                # LightRAG's own error "found 4/5 fields" implies it counts something specific.
-                # Usually it's the number of comma-separated values.
-                # Let's count top-level commas (not inside quotes if possible, but Ollama output varies)
-                commas = line.count(",")
-                if commas < 4:
-                    return False
+        if "relation<|#|>" in line or "relationship<|#|>" in line:
+            parts = line.split("<|#|>")
+            if len(parts) >= 4: # relation, src, tgt, keywords, [desc]
+                has_relation = True
         
         # Check ENTITY
-        if '("entity"<' in line:
-            commas = line.count(",")
-            if commas < 2:
-                return False
+        if "entity<|#|>" in line:
+            parts = line.split("<|#|>")
+            if len(parts) >= 3: # entity, name, type, [desc]
+                has_entity = True
                 
     # Mandatory completion delimiter for LightRAG
     if "<|COMPLETE|>" not in content:
         return False
 
-    return True
+    # We want at least one entity to consider it a success
+    return has_entity
 
 
 async def llm_func(
@@ -138,11 +133,11 @@ async def llm_func(
                 # Enhance prompt for retry
                 strict_instruction = (
                     "\n\nREGRA ESTRITA DE FORMATAÇÃO:\n"
-                    "1. Cada ENTITY deve ter EXATAMENTE 3 campos: (\"entity\"<nome>, <tipo>, <descrição>)\n"
-                    "2. Cada RELATION deve ter EXATAMENTE 5 campos: (\"relationship\"<origem>, <destino>, <descrição>, <palavras-chave>, <peso>)\n"
-                    "3. NÃO omita o peso (ex: use 1.0) ou palavras-chave.\n"
-                    "4. Certifique-se de que TODOS os 5 campos estão presentes para cada linha de relacionamento.\n"
-                    "5. Produza apenas as tuplas solicitadas, uma por linha."
+                    "1. Use o delimitador <|#|> entre campos.\n"
+                    "2. Cada ENTITY deve ser: entity<|#|>nome<|#|>tipo<|#|>descrição\n"
+                    "3. Cada RELATION deve ser: relation<|#|>origem<|#|>destino<|#|>palavras-chave<|#|>descrição\n"
+                    "4. Finalize SEMPRE com a tag <|COMPLETE|> em uma nova linha.\n"
+                    "5. Produza apenas as linhas solicitadas, uma por linha."
                 )
                 current_prompt = prompt + strict_instruction
             else:
