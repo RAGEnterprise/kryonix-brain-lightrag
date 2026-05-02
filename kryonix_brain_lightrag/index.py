@@ -772,7 +772,7 @@ async def _do_smoke() -> None:
 def cmd_reset() -> None:
     if WORKING_DIR.exists():
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = VAULT_DIR / "11-LightRAG" / f"rag_storage.failed-{ts}"
+        backup = config.BRAIN_HOME / "backups" / f"rag_storage.failed-{ts}"
         try:
             shutil.move(str(WORKING_DIR), str(backup))
             print(f"Storage archived to {backup}")
@@ -922,7 +922,7 @@ async def cmd_repair_graph(rebuild: bool = False) -> None:
     # 2. Search for valid backups in rag_storage and 11-LightRAG
     best_backup = None
     if not rebuild:
-        backup_dirs = [WORKING_DIR, VAULT_DIR / "11-LightRAG"]
+        backup_dirs = [WORKING_DIR, config.BRAIN_HOME / "backups"]
         all_backups = []
         for d in backup_dirs:
             if not d.exists(): continue

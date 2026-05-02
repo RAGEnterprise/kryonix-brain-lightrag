@@ -282,7 +282,7 @@ async def _get_ranked_entities(G: nx.Graph) -> List[Dict]:
     return ranked
 
 async def _generate_top_entities_report(ranked_entities, node_to_cluster):
-    report_path = VAULT_DIR / "11-LightRAG" / "top_entities.md"
+    report_path = config.OBSIDIAN_EXPORT_DIR / "top_entities.md"
     content = "# Top 100 Entidades - Kryonix\n\n"
     content += "| Ranking | Entidade | Score | Cluster | Conexões | Freq |\n"
     content += "|---------|----------|-------|---------|----------|------|\n"
@@ -295,7 +295,7 @@ async def _generate_top_entities_report(ranked_entities, node_to_cluster):
     safe_write(report_path, content)
 
 async def _generate_analysis_files(G, degrees, clusters, node_to_cluster):
-    analysis_path = VAULT_DIR / "11-LightRAG" / "graph-analysis.md"
+    analysis_path = config.OBSIDIAN_EXPORT_DIR / "graph-analysis.md"
     orphans = [n for n, d in degrees.items() if d == 0]
     analysis_content = f"# Análise do Grafo - Kryonix\n\n"
     analysis_content += f"- **Total de Entidades**: {len(G.nodes())}\n"

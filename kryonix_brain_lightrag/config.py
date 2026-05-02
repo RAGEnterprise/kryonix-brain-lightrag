@@ -47,7 +47,7 @@ VAULT_INCLUDE_DIRS = [
 ]
 
 VAULT_EXCLUDE_DIRS = [
-    "11-LightRAG/rag_storage",
+    "storage",
     ".backups",
     ".obsidian",
     ".git",
@@ -137,13 +137,13 @@ VERBOSE = os.getenv("LIGHTRAG_VERBOSE", "0") == "1"
 
 # ── State files ───────────────────────────────────────────────────
 FAILED_INDEX_FILE       = Path(os.getenv("LIGHTRAG_FAILED_INDEX_FILE",
-                               str(VAULT_DIR / "11-LightRAG" / "failed_index_files.json")))
+                               str(WORKING_DIR / "failed_index_files.json")))
 SKIPPED_LARGE_FILES_FILE= Path(os.getenv("LIGHTRAG_SKIPPED_LARGE_FILES_FILE",
-                               str(VAULT_DIR / "11-LightRAG" / "skipped_large_files.json")))
+                               str(WORKING_DIR / "skipped_large_files.json")))
 INDEX_MANIFEST_FILE     = Path(os.getenv("LIGHTRAG_INDEX_MANIFEST_FILE",
-                               str(VAULT_DIR / "11-LightRAG" / ".index_manifest.json")))
+                               str(WORKING_DIR / ".index_manifest.json")))
 INDEX_LOCK_FILE         = Path(os.getenv("LIGHTRAG_INDEX_LOCK_FILE",
-                               str(VAULT_DIR / "11-LightRAG" / ".index.lock")))
+                               str(WORKING_DIR / ".index.lock")))
 
 WORKING_DIR.mkdir(parents=True, exist_ok=True)
 OBSIDIAN_EXPORT_DIR.mkdir(parents=True, exist_ok=True)

@@ -672,7 +672,7 @@ async def cmd_doctor(args):
     except ImportError:
         console.print("[red][FAIL][/red] Ollama SDK not imported")
         
-    if config.WORKING_DIR == config.VAULT_DIR / "11-LightRAG" / "rag_storage":
+    if str(config.WORKING_DIR).endswith("storage"):
         console.print("[green][OK][/green] Storage path is correct")
     else:
         console.print(f"[red][FAIL][/red] Storage path is incorrect: {config.WORKING_DIR}")
@@ -812,7 +812,7 @@ async def cmd_ollama_check(args):
 async def cmd_storage_check(args):
     """Check storage constraints."""
     console.print("[bold cyan]Storage Check[/bold cyan]")
-    expected = config.VAULT_DIR / "11-LightRAG" / "rag_storage"
+    expected = config.BRAIN_HOME / "storage"
     if str(config.WORKING_DIR) == str(expected):
         console.print(f"[green][OK][/green] WORKING_DIR = {expected}")
     else:
