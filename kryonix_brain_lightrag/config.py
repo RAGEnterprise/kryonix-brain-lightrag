@@ -8,17 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── OS-aware defaults ────────────────────────────────────────────
-# NixOS/Linux: /var/lib/kryonix/brain, /var/lib/kryonix/vault
-# Windows:     preserva caminhos legados (C:\Users\aguia\...)
-_is_windows = sys.platform == "win32"
-
-if _is_windows:
-    _default_workspace = r"C:\Users\aguia\Documents\kryonix"
-    _default_vault = r"C:\Users\aguia\Documents\kryonix-vault"
-else:
-    _default_workspace = os.path.expanduser("~/.local/share/kryonix/brain")
-    _default_vault = "/home/rocha/.local/share/kryonix/kryonix-vault"
+# ── Defaults ─────────────────────────────────────────────────────
+_default_workspace = os.path.expanduser("~/.local/share/kryonix/brain")
+_default_vault = "/home/rocha/.local/share/kryonix/kryonix-vault"
 _default_storage_subdir = "storage"
 _default_export_subdir = "exports"
 _default_refine_subdir = "storage"
