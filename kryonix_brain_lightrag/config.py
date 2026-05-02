@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Defaults ─────────────────────────────────────────────────────
+# ── OS-aware defaults ────────────────────────────────────────────
 _default_workspace = os.path.expanduser("~/.local/share/kryonix/brain")
 _default_vault = "/home/rocha/.local/share/kryonix/kryonix-vault"
 _default_storage_subdir = "storage"
@@ -36,7 +36,12 @@ INDEX_REPO = os.getenv("LIGHTRAG_INDEX_REPO", "true").lower() == "true"
 INDEX_VAULT = os.getenv("LIGHTRAG_INDEX_VAULT", "true").lower() == "true"
 
 VAULT_INCLUDE_DIRS = [
-    "vault"
+    "00-System",
+    "01-MOCs",
+    "02-Areas",
+    "03-Projetos",
+    "06-Playbooks",
+    "07-Prompts",
 ]
 
 VAULT_EXCLUDE_DIRS = [
