@@ -137,11 +137,11 @@ Given a text document that is potentially relevant to this project, your task is
    - weight: an integer from 1 to 10.
 
 3. Output the results in the following STRICT format:
-("entity"<entity_name>, <entity_type>, <entity_description>)
-("relationship"<source_entity>, <target_entity>, <relationship_description>, <relationship_keywords>, <relationship_weight>)
+entity<|#|>entity_name<|#|>entity_type<|#|>entity_description
+relation<|#|>source_entity<|#|>target_entity<|#|>relationship_keywords<|#|>relationship_description
 
 -Rules-
-- Output only the tuples. No intro/outro.
+- Output only the lines in the specified format. No intro/outro.
 - Avoid generic relationships.
 - IMPORTANT: When finished, you MUST output the exact string "<|COMPLETE|>" on a new line.
 """
