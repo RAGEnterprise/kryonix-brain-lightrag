@@ -772,7 +772,7 @@ async def _do_smoke() -> None:
 def cmd_reset() -> None:
     if WORKING_DIR.exists():
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = config.BRAIN_HOME / "backups" / f"rag_storage.failed-{ts}"
+        backup = BRAIN_HOME / "backups" / f"rag_storage.failed-{ts}"
         try:
             shutil.move(str(WORKING_DIR), str(backup))
             print(f"Storage archived to {backup}")

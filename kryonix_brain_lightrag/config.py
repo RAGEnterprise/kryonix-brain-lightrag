@@ -10,7 +10,7 @@ load_dotenv()
 
 # ── OS-aware defaults ────────────────────────────────────────────
 _default_brain_home = "/home/rocha/.local/share/kryonix/kryonix-vault"
-_default_workspace = os.path.expanduser("~/.local/share/kryonix/brain")
+_default_workspace = "/etc/kryonix"
 _default_vault = f"{_default_brain_home}/vault"
 _default_working_dir = f"{_default_brain_home}/storage"
 _default_export_subdir = f"{_default_brain_home}/exports"
@@ -39,6 +39,7 @@ INDEX_VAULT = os.getenv("LIGHTRAG_INDEX_VAULT", "true").lower() == "true"
 
 VAULT_INCLUDE_DIRS = [
     "00-System",
+    "01-Canonical",
     "01-MOCs",
     "02-Areas",
     "03-Projetos",
@@ -85,7 +86,7 @@ PROFILES: dict[str, dict] = {
         "index_batch_size": 1,
     },
     "balanced": {
-        "llm_model": "qwen2.5-coder:7b",
+        "llm_model": "llama3.1:8b",
         "llm_model_max_async": 1,
         "max_parallel_insert": 1,
         "embedding_batch_num": 1,
@@ -94,7 +95,7 @@ PROFILES: dict[str, dict] = {
         "index_batch_size": 1,
     },
     "query": {
-        "llm_model": "qwen2.5-coder:7b",
+        "llm_model": "llama3.1:8b",
         "llm_model_max_async": 2,
         "max_parallel_insert": 1,
         "embedding_batch_num": 2,
@@ -103,7 +104,7 @@ PROFILES: dict[str, dict] = {
         "index_batch_size": 1,
     },
     "quality": {
-        "llm_model": "qwen2.5-coder:7b",
+        "llm_model": "llama3.1:8b",
         "llm_model_max_async": 1,
         "max_parallel_insert": 1,
         "embedding_batch_num": 1,
@@ -165,7 +166,7 @@ INCLUDE_EXTENSIONS: dict[str, list[str]] = {
 }
 
 EXCLUDE_DIRS: set[str] = {
-    ".git", "node_modules", ".next", "dist", "build", "target",
+    ".git", "node_modules", ".next", "dist", "build", "target", "result", "backups",
     "__pycache__", ".venv", "rag_storage", "obsidian-export",
 }
 

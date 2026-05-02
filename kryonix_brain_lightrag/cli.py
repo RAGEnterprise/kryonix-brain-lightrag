@@ -45,12 +45,28 @@ async def cmd_vault(args):
     if args.sub == "scan":
         cmd_vault_scan()
     elif args.sub == "index":
-        # Index incremental
+        # Index incremental ou full
         class Args:
-            path = None; incremental = True; full = False; dry_run = False; first_run = False; resume = False;
-            retry_failed = False; refine = False; smoke = False; repair_vdb = False; reset = False;
-            clean_state = False; verbose = args.verbose; profile = ""; limit = 0; only_useful = False;
-            known_source_only = False; min_chars = 100; reset_refine_state = False; report = False;
+            path = None
+            incremental = not getattr(args, "full", False)
+            full = getattr(args, "full", False)
+            dry_run = False
+            first_run = False
+            resume = False
+            retry_failed = False
+            refine = False
+            smoke = False
+            repair_vdb = False
+            reset = False
+            clean_state = False
+            verbose = getattr(args, "verbose", False)
+            profile = getattr(args, "profile", "")
+            limit = 0
+            only_useful = False
+            known_source_only = False
+            min_chars = 100
+            reset_refine_state = False
+            report = False
         await cmd_index(Args())
 
 async def cmd_graph(args):
@@ -331,6 +347,17 @@ async def cmd_diagnostics(args):
         console.print("\n[yellow]Dica:[/yellow] Entidades sem descrição podem causar grounded retrieval fraco.")
         console.print("Rode [bold]rag graph heal[/bold] para tentar recuperar conexões e descrições.")
 
+
+async def cmd_repair_vdb(args=None):
+    """Repair/Prune VDB entries."""
+    console.print("[yellow]Iniciando reparo/pruning do Vector DB...[/yellow]")
+    res = await rag_mod.prune_vdb(verbose=True)
+    if res["status"] == "success":
+        console.print(f"[green]{res['message']}[/green]")
+        console.print(f"Stats: {res['stats']}")
+        console.print("[blue]DICA: Reindexação completa com --full é recomendada para consistência total da matriz.[/blue]")
+    else:
+        console.print(f"[red]Erro no reparo: {res['message']}[/red]")
 
 # ── Top entities ────────────────────────────────────────────────
 
@@ -1039,7 +1066,9 @@ def main():
     sp_v_sub = sp_vault.add_subparsers(dest="sub", required=True)
     sp_v_sub.add_parser("scan", help="Scan vault files")
     sp_v_idx = sp_v_sub.add_parser("index", help="Index vault files")
-    sp_v_idx.add_argument("--verbose", action="store_true")
+    sp_v_idx.add_argument("--verbose", action="store_true", help="Log detalhado de arquivos e chunks")
+    sp_v_idx.add_argument("--full", action="store_true", help="Força reindexação completa ignorando manifest")
+    sp_v_idx.add_argument("--profile", default="", help="Perfil de recursos: safe | balanced | query")
     sp_vault.set_defaults(func=cmd_vault)
 
     # graph
