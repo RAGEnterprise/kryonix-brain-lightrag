@@ -1,4 +1,6 @@
 def test_storage_guard():
     from kryonix_brain_lightrag import config
-    assert "packages\\kryonix-brain-lightrag\\rag_storage" not in str(config.WORKING_DIR)
-    assert "11-LightRAG\\rag_storage" in str(config.WORKING_DIR)
+    # Garante que não estamos usando o path local de dev dentro do pacote
+    assert "packages" not in str(config.WORKING_DIR)
+    # Garante que estamos no path correto do sistema
+    assert "kryonix-vault/storage" in str(config.WORKING_DIR).replace("\\", "/")

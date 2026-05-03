@@ -26,6 +26,7 @@ import sys
 import time
 import networkx as nx
 from pathlib import Path
+from .utils import SecretScanner, get_timestamp
 
 from .config import (
     WORKSPACE_ROOT, INCLUDE_EXTENSIONS,
@@ -241,25 +242,21 @@ def _collect_files(mode: str) -> list[tuple[str, str, int]]:
 
     # 2. Collect from Vault
     if INDEX_VAULT:
-        v_root = str(VAULT_DIR)
+        v_root = Path(VAULT_DIR)
         for inc_dir in VAULT_INCLUDE_DIRS:
-            dir_path = os.path.join(v_root, inc_dir)
-            if not os.path.exists(dir_path): continue
+            dir_path = v_root / inc_dir
+            if not dir_path.exists():
+                continue
             
-            for ext_pattern in ["*.md"]: # Only index markdown from vault
-                pattern = os.path.join(dir_path, "**", ext_pattern)
-                for abs_path in glob.glob(pattern, recursive=True):
-                    rel = os.path.relpath(abs_path, v_root).replace("\\", "/")
-                    
-                    # Check exclusion
-                    if any(rel.startswith(ex) for ex in VAULT_EXCLUDE_DIRS):
-                        continue
-                    
-                    try:
-                        size = os.path.getsize(abs_path)
-                        if size > 0:
-                            found.append((abs_path, f"vault/{rel}", size))
-                    except: pass
+            for md_file in dir_path.rglob("*.md"):
+                rel = str(md_file.relative_to(v_root)).replace("\\", "/")
+                if should_exclude_path(f"vault/{rel}"):
+                    continue
+                try:
+                    size = md_file.stat().st_size
+                    if size > 0:
+                        found.append((str(md_file.resolve()), f"vault/{rel}", size))
+                except: pass
 
     # Deduplicate
     seen: set[str] = set()
@@ -271,7 +268,7 @@ def _collect_files(mode: str) -> list[tuple[str, str, int]]:
 
     deduped.sort(key=lambda x: x[2])
 
-    if mode in ("full", "dry-run", "first-run", "smoke", "resume", "scan"):
+    if mode in ("full", "dry-run", "first-run", "smoke", "resume", "scan", "curate"):
         return deduped
 
     if mode == "retry-failed":
@@ -820,7 +817,7 @@ def cmd_clean_state() -> None:
 
 # ── Entry point ───────────────────────────────────────────────────
 
-async def cmd_repair_vdb() -> None:
+async def cmd_repair_vdb(dry_run: bool = False) -> None:
     """Reconstruct vdb_entities.json from graph data."""
     print("[REPAIR] Starting vdb_entities reconstruction...", flush=True)
     
@@ -836,6 +833,10 @@ async def cmd_repair_vdb() -> None:
         backup = vdb_path.with_suffix(f".corrupted-{ts}.json")
         vdb_path.rename(backup)
         print(f"[REPAIR] Moved corrupted VDB to {backup.name}", flush=True)
+
+    if dry_run:
+        print(f"[REPAIR] [SIMULAÇÃO] Reconstruiria vdb_entities.json a partir de {len(G.nodes)} nós do grafo.")
+        return
 
     rag = await get_rag_async()
     entities = []
@@ -899,12 +900,14 @@ async def cmd_repair_vdb() -> None:
         print(f"[REPAIR] Failed to save vdb_entities.json: {e}", flush=True)
 
 
-async def cmd_repair_graph(rebuild: bool = False) -> None:
+async def cmd_repair_graph(rebuild: bool = False, dry_run: bool = False) -> None:
     """Repair or reconstruct graph_chunk_entity_relation.graphml."""
     target = WORKING_DIR / "graph_chunk_entity_relation.graphml"
     print(f"[REPAIR-GRAPH] Alvo: {target}", flush=True)
     if rebuild:
         print("[REPAIR-GRAPH] Modo --rebuild ATIVADO. Ignorando backups e reconstruindo via KV...", flush=True)
+    if dry_run:
+        print("[REPAIR-GRAPH] [SIMULAÇÃO] Analisando integridade e backups sem mutação...", flush=True)
 
     # 1. Backup current if exists
     if target.exists():
@@ -951,6 +954,9 @@ async def cmd_repair_graph(rebuild: bool = False) -> None:
                 except: pass
 
     if best_backup:
+        if dry_run:
+            print(f"[REPAIR-GRAPH] [SIMULAÇÃO] Restauraria do melhor backup: {best_backup.name}")
+            return
         print(f"[REPAIR-GRAPH] Restaurando do melhor backup: {best_backup.name}")
         shutil.copy2(best_backup, target)
         print("[REPAIR-GRAPH] Restauração concluída.")
@@ -1051,6 +1057,9 @@ async def cmd_repair_graph(rebuild: bool = False) -> None:
 
     print(f"[REPAIR-GRAPH] Grafo reconstruído: {len(G.nodes)} nós, {len(G.edges)} arestas.")
     if len(G.nodes) > 0:
+        if dry_run:
+            print(f"[REPAIR-GRAPH] [SIMULAÇÃO] Escreveria novo grafo em {target}")
+            return
         atomic_write_graphml(G, target)
         print("[REPAIR-GRAPH] Sucesso na reconstrução semântica.")
     else:
@@ -1107,7 +1116,7 @@ async def cmd_index(args_obj=None) -> None:
         _show_refine_report()
         return
     if get_arg("repair_vdb"):
-        await cmd_repair_vdb()
+        await cmd_repair_vdb(dry_run=get_arg("dry_run"))
         return
 
     # Pre-flight health check
@@ -1186,6 +1195,185 @@ async def cmd_index(args_obj=None) -> None:
         if INDEX_LOCK_FILE.exists():
             INDEX_LOCK_FILE.unlink()
 
+async def cmd_ingest_list() -> None:
+    """Lista itens pendentes na fila de ingestão."""
+    from .config import INGEST_QUEUE_DIR
+    if not INGEST_QUEUE_DIR.exists():
+        print("Fila de ingestão vazia (diretório não existe).")
+        return
+    
+    files = list(INGEST_QUEUE_DIR.glob("*.json"))
+    if not files:
+        print("Fila de ingestão vazia.")
+        return
+    
+    print(f"Encontrados {len(files)} itens pendentes:")
+    print("-" * 80)
+    for f in sorted(files, key=os.path.getmtime):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            item_id = data.get("id", "?")
+            source = data.get("source", "?")
+            reason = data.get("reason", "?")[:60]
+            ts = data.get("proposed_at", "?")
+            findings = data.get("security_findings", [])
+            warn = " [⚠️ SECURITY ALERT]" if findings else ""
+            print(f"ID: {item_id} | Origem: {source} | Data: {ts}{warn}")
+            print(f"Motivo: {reason}...")
+            print("-" * 40)
+        except Exception as e:
+            print(f"Erro ao ler {f.name}: {e}")
+    print("-" * 80)
+
+async def cmd_ingest_approve(item_id: str) -> None:
+    """Aprova e indexa um item da fila."""
+    from .config import INGEST_QUEUE_DIR, WORKING_DIR
+    from .rag import get_rag_async
+    
+    path = INGEST_QUEUE_DIR / f"{item_id}.json"
+    if not path.exists():
+        print(f"ERRO: Item {item_id} não encontrado na fila.")
+        return
+    
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        content = data.get("content")
+        if not content:
+            print(f"ERRO: Item {item_id} não possui conteúdo.")
+            return
+            
+        print(f"Indexando item {item_id} (Origem: {data.get('source')})...")
+        rag = await get_rag_async()
+        await rag.ainsert(content)
+        
+        # Mover para histórico de aprovados
+        hist_dir = INGEST_QUEUE_DIR / "approved"
+        hist_dir.mkdir(parents=True, exist_ok=True)
+        
+        data["status"] = "approved"
+        data["approved_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        path.rename(hist_dir / f"{item_id}.json")
+        print(f"Sucesso! Item {item_id} indexado e movido para aprovados.")
+        
+    except Exception as e:
+        print(f"ERRO ao processar item {item_id}: {e}")
+
+async def cmd_ingest_reject(item_id: str) -> None:
+    """Rejeita um item da fila sem indexar."""
+    from .config import INGEST_QUEUE_DIR
+    
+    path = INGEST_QUEUE_DIR / f"{item_id}.json"
+    if not path.exists():
+        print(f"ERRO: Item {item_id} não encontrado na fila.")
+        return
+        
+    try:
+        rej_dir = INGEST_QUEUE_DIR / "rejected"
+        rej_dir.mkdir(parents=True, exist_ok=True)
+        
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["status"] = "rejected"
+        data["rejected_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        path.rename(rej_dir / f"{item_id}.json")
+        print(f"Item {item_id} rejeitado e movido para a lixeira.")
+    except Exception as e:
+        print(f"ERRO ao rejeitar item {item_id}: {e}")
+
+async def cmd_vault_curate(dry_run: bool = True):
+    """Analiza o Vault em busca de links quebrados, órfãos e metadados ausentes."""
+    from .config import VAULT_DIR, VAULT_INCLUDE_DIRS
+    import re
+    
+    print(f"[CURATE] Iniciando curadoria do Vault: {VAULT_DIR}")
+    if dry_run:
+        print("[CURATE] MODO DRY-RUN ATIVADO. Nenhuma alteração será feita.")
+
+    # 1. Mapear notas existentes (nome -> path_relativo)
+    # Obsidian links usam o nome do arquivo sem extensão por padrão
+    note_map: dict[str, str] = {}
+    v_root = str(VAULT_DIR)
+    
+    files = _collect_files("curate")
+    vault_files = [f for f in files if f[1].startswith("vault/")]
+    
+    for abs_path, rel_path, _ in vault_files:
+        name = os.path.splitext(os.path.basename(abs_path))[0]
+        note_map[name] = abs_path
+
+    print(f"[CURATE] Encontradas {len(note_map)} notas no vault.")
+
+    # 2. Analisar links e frontmatter
+    broken_links: list[tuple[str, str]] = [] # (origem, destino)
+    orphans: set[str] = set(note_map.keys())
+    link_regex = re.compile(r'\[\[(.*?)\]\]')
+    
+    for name, abs_path in note_map.items():
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Extrair links
+            matches = link_regex.findall(content)
+            for m in matches:
+                # Tratar aliases [[Nota|Alias]]
+                target = m.split('|')[0].strip()
+                if not target: continue
+                
+                if target in note_map:
+                    if target != name:
+                        orphans.discard(target)
+                else:
+                    # Link quebrado (ignorar se for link para anexo ou web)
+                    if '.' not in target and not target.startswith('http'):
+                        broken_links.append((name, target))
+        except Exception as e:
+            print(f"[CURATE] Erro ao ler {name}: {e}")
+
+    # 3. Filtrar órfãos (ignorar MOCs, System e arquivos raiz)
+    system_prefixes = ("00-System", "01-MOCs", "Index", "README")
+    real_orphans = [o for o in orphans if not any(o.startswith(p) for p in system_prefixes)]
+
+    # 4. Relatório
+    report = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "notes_count": len(note_map),
+        "broken_links": [{"source": src, "target": dst} for src, dst in broken_links],
+        "orphans": list(real_orphans),
+        "dry_run": dry_run
+    }
+    
+    from .config import VAULT_CURATE_REPORT
+    try:
+        VAULT_CURATE_REPORT.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"\nRelatório completo salvo em: {VAULT_CURATE_REPORT}")
+    except Exception as e:
+        print(f"\nERRO ao salvar relatório: {e}")
+
+    print("\n" + "="*40)
+    print("RELATÓRIO DE CURADORIA")
+    print("="*40)
+    
+    print(f"\nLinks Quebrados ({len(broken_links)}):")
+    for src, dst in broken_links[:20]:
+        print(f"  - [{src}] -> [[{dst}]]")
+    if len(broken_links) > 20:
+        print(f"  ... e mais {len(broken_links)-20}")
+
+    print(f"\nNotas Órfãs ({len(real_orphans)}):")
+    for o in real_orphans[:20]:
+        print(f"  - {o}")
+    if len(real_orphans) > 20:
+        print(f"  ... e mais {len(real_orphans)-20}")
+
+    if not dry_run:
+        print("\n[CURATE] Aplicando marcações de revisão...")
+        # Por enquanto, apenas reportamos para segurança total conforme solicitado.
+        print("[CURATE] Funcionalidade de escrita desabilitada por precaução (Fase 1).")
+
+    print("\n[CURATE] Concluído.")
+
 def cmd_vault_scan():
     """List vault files to be indexed."""
     print("Verificando discovery do vault...")
@@ -1197,9 +1385,76 @@ def cmd_vault_scan():
     
     print(f"\nTotal de arquivos do vault encontrados: {len(vault_files)}")
 
+async def cmd_vault_sync_docs(dry_run: bool = True):
+    """Sincroniza documentos canônicos de docs/ para o Vault."""
+    from .config import PROJECT_DIR, VAULT_DIR
+    import yaml
+    
+    docs_root = PROJECT_DIR / "docs"
+    target_root = VAULT_DIR / "01-Canonical"
+    
+    print(f"[SYNC-DOCS] Sincronizando {docs_root} -> {target_root}")
+    if dry_run:
+        print("[SYNC-DOCS] MODO DRY-RUN ATIVADO. Nenhuma alteração será feita.")
+
+    if not docs_root.exists():
+        print(f"ERRO: Diretório de documentos não encontrado: {docs_root}")
+        return
+
+    found_docs = list(docs_root.rglob("*.md"))
+    print(f"[SYNC-DOCS] Encontrados {len(found_docs)} documentos canônicos.")
+
+    for doc in found_docs:
+        rel_path = doc.relative_to(docs_root)
+        target_path = target_root / rel_path
+        
+        # Ignorar se o target estiver na lista de exclusão do vault (ex: Archive)
+        if "archive" in str(rel_path).lower():
+            continue
+
+        try:
+            content = doc.read_text(encoding="utf-8")
+            
+            # Preparar frontmatter
+            source_ref = f"repo/docs/{rel_path}"
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            
+            # Regex simples para separar frontmatter se existir
+            fm_regex = re.compile(r'^---\s*\n(.*?)\n---\s*\n(.*)$', re.DOTALL)
+            match = fm_regex.match(content)
+            
+            if match:
+                fm_str, body = match.groups()
+                try:
+                    fm = yaml.safe_load(fm_str) or {}
+                except:
+                    fm = {}
+                fm["source"] = source_ref
+                fm["type"] = "canonical-doc"
+                fm["last_sync"] = now
+                new_content = f"---\n{yaml.dump(fm, allow_unicode=True)}---\n{body}"
+            else:
+                fm = {
+                    "source": source_ref,
+                    "type": "canonical-doc",
+                    "last_sync": now
+                }
+                new_content = f"---\n{yaml.dump(fm, allow_unicode=True)}---\n{content}"
+
+            if dry_run:
+                print(f"  [SIMULAÇÃO] Sync: {rel_path} -> {target_path}")
+            else:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_text(new_content, encoding="utf-8")
+                print(f"  [OK] Sincronizado: {rel_path}")
+
+        except Exception as e:
+            print(f"  [ERRO] Falha ao sincronizar {rel_path}: {e}")
+
+    print("[SYNC-DOCS] Concluído.")
+
 def main():
     asyncio.run(cmd_index())
-
 
 if __name__ == "__main__":
     main()

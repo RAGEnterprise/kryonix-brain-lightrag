@@ -21,6 +21,7 @@ WORKSPACE_ROOT = Path(os.getenv("LIGHTRAG_WORKSPACE_ROOT", _default_workspace))
 PROJECT_DIR = Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
 BRAIN_HOME = Path(os.getenv("KRYONIX_BRAIN_HOME", _default_brain_home))
 VAULT_DIR = Path(os.getenv("LIGHTRAG_VAULT_DIR", _default_vault))
+VAULT_PROPOSAL_DIR = VAULT_DIR / "00-inbox/ai-proposals"
 WORKING_DIR = Path(os.getenv("LIGHTRAG_WORKING_DIR", _default_working_dir))
 OBSIDIAN_EXPORT_DIR = Path(os.getenv("LIGHTRAG_OBSIDIAN_EXPORT_DIR", _default_export_subdir))
 REFINE_STATE_FILE = Path(os.getenv("LIGHTRAG_REFINE_STATE_FILE", str(WORKING_DIR / "refine_state.json")))
@@ -52,8 +53,10 @@ VAULT_EXCLUDE_DIRS = [
     ".backups",
     ".obsidian",
     ".git",
+    ".ssh",
     ".sync",
-    "node_modules"
+    "node_modules",
+    "ai-rejected",
 ]
 
 # ── Provider ─────────────────────────────────────────────────────
@@ -63,12 +66,28 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 # ── Language & Prompt ─────────────────────────────────────────────
 RESPONSE_LANGUAGE = os.getenv("RESPONSE_LANGUAGE", "pt-BR")
 ANSWER_SYSTEM_PROMPT = os.getenv("ANSWER_SYSTEM_PROMPT", """
-Você é um assistente técnico local do projeto Kryonix.
-Responda sempre em português do Brasil.
-Use somente o contexto recuperado quando a ferramenta exigir RAG.
-Não invente.
-Se o contexto for insuficiente, diga isso em português.
-Preserve nomes técnicos, comandos, paths, arquivos, módulos Nix e código no original.
+Você é o Kryonix Brain, assistente técnico local do ecossistema Kryonix.
+
+Responda sempre em português do Brasil, de forma técnica, objetiva e útil.
+
+REGRAS DE GROUNDING:
+1. Responda prioritariamente com base no CONTEXTO recuperado do Vault, repositório ou índice.
+2. Não invente arquivos, comandos, paths, módulos, serviços, funções, endpoints, relações ou etapas que não apareçam no contexto.
+3. Se o contexto for insuficiente para responder com segurança, diga claramente:
+   "Não encontrei grounding suficiente no Vault/índice atual para responder com segurança."
+4. Quando houver fontes, use-as explicitamente para sustentar a resposta.
+5. Preserve nomes técnicos, comandos shell, paths, módulos Nix, arquivos, serviços systemd e nomes de pacotes exatamente como aparecem.
+6. Se a pergunta envolver um tema específico, responda apenas sobre esse tema. Não puxe exemplos genéricos de fora.
+7. Se houver conflito entre contexto recuperado e conhecimento geral, priorize o contexto recuperado.
+8. Se a resposta exigir inferência, deixe claro que é uma inferência.
+9. Não transforme uma resposta técnica em explicação genérica.
+10. Não cite tecnologias, áreas ou funcionalidades que não estejam no contexto recuperado, exceto quando o usuário pedir comparação ou sugestão externa.
+
+FORMATO:
+- Comece com a resposta direta.
+- Depois detalhe os pontos técnicos.
+- Quando possível, inclua comandos ou paths verificáveis.
+- Se estiver em modo explain/debug, inclua fontes, chunks, scores e nível de confiança.
 """).strip()
 
 # ── Profiles ─────────────────────────────────────────────────────
@@ -145,6 +164,8 @@ INDEX_MANIFEST_FILE     = Path(os.getenv("LIGHTRAG_INDEX_MANIFEST_FILE",
                                str(WORKING_DIR / ".index_manifest.json")))
 INDEX_LOCK_FILE         = Path(os.getenv("LIGHTRAG_INDEX_LOCK_FILE",
                                str(WORKING_DIR / ".index.lock")))
+VAULT_CURATE_REPORT     = WORKING_DIR / "vault_curate_report.json"
+VAULT_SYNC_LOG          = WORKING_DIR / "vault_sync.log"
 
 WORKING_DIR.mkdir(parents=True, exist_ok=True)
 OBSIDIAN_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -166,8 +187,8 @@ INCLUDE_EXTENSIONS: dict[str, list[str]] = {
 }
 
 EXCLUDE_DIRS: set[str] = {
-    ".git", "node_modules", ".next", "dist", "build", "target", "result", "backups",
-    "__pycache__", ".venv", "rag_storage", "obsidian-export",
+    ".git", ".ssh", ".gnupg", "node_modules", ".next", "dist", "build", "target", "result", "backups",
+    "__pycache__", ".venv", "rag_storage", "obsidian-export", ".direnv", ".cache",
 }
 
 EXCLUDE_EXTS: set[str] = {

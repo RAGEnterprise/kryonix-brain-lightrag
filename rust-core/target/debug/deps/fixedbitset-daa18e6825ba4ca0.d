@@ -1,0 +1,8 @@
+/etc/kryonix/packages/kryonix-brain-lightrag/rust-core/target/debug/deps/fixedbitset-daa18e6825ba4ca0.d: /home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/lib.rs /home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/range.rs
+
+/etc/kryonix/packages/kryonix-brain-lightrag/rust-core/target/debug/deps/libfixedbitset-daa18e6825ba4ca0.rlib: /home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/lib.rs /home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/range.rs
+
+/etc/kryonix/packages/kryonix-brain-lightrag/rust-core/target/debug/deps/libfixedbitset-daa18e6825ba4ca0.rmeta: /home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/lib.rs /home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/range.rs
+
+/home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/lib.rs:
+/home/rocha/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fixedbitset-0.4.2/src/range.rs:

@@ -153,6 +153,43 @@ def obsidian_extract_links(note_path: str) -> List[str]:
     links = re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", content)
     return list(set(links))
 
+def obsidian_propose_note(title: str, content: str, source: str, reason: str) -> str:
+    """
+    Propose a note to be created in the vault inbox.
+    Only writes to 00-inbox/ai-proposals.
+    """
+    # Import slugify here to avoid circular dependencies if any
+    from .rag import slugify
+    
+    safe_title = slugify(title)
+    if not safe_title.endswith(".md"):
+        safe_title += ".md"
+    
+    prop_dir = config.VAULT_PROPOSAL_DIR
+    prop_dir.mkdir(parents=True, exist_ok=True)
+    
+    p = prop_dir / safe_title
+    
+    # Frontmatter enforcement
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    frontmatter = f"""---
+status: proposed
+source: {source}
+reason: {reason}
+timestamp: {timestamp}
+generated-by: kryonix-brain
+---
+
+"""
+    # Ensure content starts with a newline if it doesn't already
+    if not content.startswith("\n") and not content.startswith("#"):
+        content = "\n" + content
+        
+    full_content = frontmatter + content
+    
+    p.write_text(full_content, encoding="utf-8")
+    return f"Note proposed successfully at {p.relative_to(VAULT_ROOT)}"
+
 def obsidian_validate_vault() -> Dict:
     """Validate vault accessibility and configuration."""
     status = obsidian_status()

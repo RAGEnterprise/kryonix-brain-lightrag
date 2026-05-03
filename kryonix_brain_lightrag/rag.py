@@ -113,13 +113,13 @@ def slugify(text: str) -> str:
 
 # ── Prompts ──────────────────────────────────────────────────────
 ENTITY_EXTRACTION_PROMPT = """-Goal-
-Given a text document that is potentially relevant to this project, your task is to identify all entities and their relationships with high semantic density.
+Given a text document that is potentially relevant to this project (Kryonix NixOS/IA Platform), your task is to identify all entities and their relationships with high semantic density.
 We need a RICHER graph. Do not be afraid to extract multiple entities and many relationships per chunk.
 
 -Steps-
 1. Identify all entities. For each entity, extract:
    - name: name of the entity, capitalized
-   - type: type of the entity (e.g., ORGANIZATION, PERSON, TECHNOLOGY, CONFIG, FILE, MODULE, FUNCTION, HARDWARE, ARCHITECTURE, etc.)
+   - type: type of the entity (e.g., ORGANIZATION, PERSON, TECHNOLOGY, CONFIG, FILE, NIX_MODULE, HOME_MANAGER_CONFIG, FLAKE_INPUT, SYSTEMD_SERVICE, FUNCTION, HARDWARE, ARCHITECTURE, etc.)
    - description: comprehensive summary of the entity's role and importance.
 
 2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are related.
@@ -129,7 +129,7 @@ We need a RICHER graph. Do not be afraid to extract multiple entities and many r
    - target: name of the target entity
    - relationship: a clear action or connection (verb or phrase)
    - description: explain the EXACT functional relationship
-   - keywords: specific relationship type (e.g. depends_on, implements, manages, configures, part_of, uses, relates_to, defines)
+   - keywords: specific relationship type (e.g. depends_on, implements, manages, configures, part_of, uses, relates_to, defines, imports, declares, overrides, triggers)
    - weight: an integer from 1 to 10.
 
 3. Output the results in the following STRICT format:
@@ -203,21 +203,30 @@ async def expand_query_semantically(query_text: str) -> str:
     return query_text
 
 async def extract_keywords_llm(query_text: str) -> list[str]:
-    """Extract technical keywords from the query."""
+    """Extract technical keywords from the query using the LLM."""
     rag = await get_rag_async()
     prompt = f"Extraia apenas os termos técnicos, ferramentas e entidades chave desta pergunta como uma lista separada por vírgulas. Pergunta: {query_text}"
     try:
         res = await llm_func(prompt)
         if res:
-            return [k.strip() for k in res.split(",") if len(k.strip()) > 1]
-    except:
-        pass
+            keywords = [k.strip() for k in res.split(",") if len(k.strip()) > 1]
+            if VERBOSE:
+                console.print(f"[dim][DEBUG] LLM Keywords: {keywords}[/dim]")
+            return keywords
+    except Exception as e:
+        console.print(f"[red][ERROR] Keyword extraction failed: {e}[/red]")
     return []
 
-async def analyze_query_strategy(query_text: str) -> dict:
-    """Decide search strategy based on query content."""
-    technical_keywords = ["config", "nix", "error", "erro", "setup", "install", "como", "how to", "cmd", "cli", "comando"]
-    conceptual_keywords = ["o que", "what is", "por que", "why", "conceito", "arquitetura", "architecture"]
+async def analyze_query_strategy(query_text: str) -> dict[str, str | int]:
+    """Decide search strategy based on query content analysis."""
+    technical_keywords = [
+        "config", "nix", "error", "erro", "setup", "install", "como", "how to", 
+        "cmd", "cli", "comando", "setup", "build", "flake", "module"
+    ]
+    conceptual_keywords = [
+        "o que", "what is", "por que", "why", "conceito", "arquitetura", "architecture",
+        "design", "objetivo", "roadmap", "contexto"
+    ]
     
     q = query_text.lower()
     is_technical = any(k in q for k in technical_keywords)
@@ -407,7 +416,7 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
 
     return ranked_chunks
 
-async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False) -> dict:
+async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False, explain: bool = False) -> dict:
     rag = await get_rag_async()
     target_lang = lang or RESPONSE_LANGUAGE
     
@@ -417,7 +426,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
     hops = strategy["hops"]
     top_k_chunks = strategy["top_k"]
     
-    if verbose:
+    if verbose or explain:
         console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
     
     # 2. Expand query semanticamente
@@ -425,7 +434,15 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
     
     # 3. RAG Pipeline com Grounding Avançado
     try:
-        params = QueryParam(mode=search_mode, top_k=15)
+        # Detectar se é uma pergunta sobre o pipeline do Kryonix (Garantindo que não afete outros temas)
+        q_lower = term.lower()
+        is_pipeline_query = (
+            "kryonix" in q_lower 
+            and "rag" in q_lower 
+            and ("pipeline" in q_lower or "funciona" in q_lower)
+        )
+        
+        params = QueryParam(mode=search_mode, top_k=20)
         data_res = await rag.aquery_data(expanded_query, param=params)
         
         if data_res.get("status") != "success":
@@ -442,22 +459,53 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         # Grounding manual com expansão e ranking
         ranked_chunks = await _manual_grounding(entities, relations, expanded_query, hops=hops)
         
+        # Hard Guard para Pipeline do Kryonix
+        if is_pipeline_query:
+            pipeline_keywords = [
+                "lightrag", "embedding", "embeddings", "chunk", "chunks", 
+                "graphml", "ollama", "vault", "vector", "hybrid", 
+                "nano-vectordb", "entities", "relations", "storage"
+            ]
+            has_technical_grounding = any(k in str(ranked_chunks).lower() for k in pipeline_keywords)
+            
+            if not has_technical_grounding:
+                return {
+                    "status": "no_grounding",
+                    "answer": "Não encontrei grounding suficiente no Vault/índice atual para descrever o pipeline RAG do Kryonix com segurança.",
+                    "confidence": "None",
+                    "sources": []
+                }
+
         if not ranked_chunks:
             return {
-                "status": "error",
-                "answer": "Nenhum chunk disponível para grounding. Abortando para evitar alucinação.",
-                "warnings": ["Grounding empty"]
+                "status": "no_grounding",
+                "answer": "Não encontrei grounding suficiente no índice atual para responder com segurança.",
+                "confidence": "None",
+                "sources": []
             }
             
         # 4. Construção do Contexto
         final_chunks = ranked_chunks[:top_k_chunks]
         
+        # Threshold de confiança baseado no melhor score
+        max_score = final_chunks[0].get("score", 0.0) if final_chunks else 0.0
+        confidence = "Alta" if max_score > 0.7 else "Média" if max_score > 0.4 else "Baixa"
+        
+        if max_score < 0.15:
+            return {
+                "status": "low_confidence",
+                "answer": "Não encontrei grounding suficiente no índice atual para responder com segurança.",
+                "confidence": confidence,
+                "max_score": round(max_score, 3),
+                "sources": []
+            }
+
         context_str = "--- CONTEXTO DO GRAFO (ENTIDADES) ---\n"
-        for ent in entities[:20]:
+        for ent in entities[:15]:
             context_str += f"- {ent['entity_name']} ({ent['entity_type']}): {ent['description']}\n"
             
         context_str += "\n--- CONTEXTO DO GRAFO (RELAÇÕES) ---\n"
-        for rel in relations[:20]:
+        for rel in relations[:15]:
             context_str += f"- {rel['src_id']} -> {rel['tgt_id']}: {rel['description']}\n"
             
         context_str += "\n--- CONTEXTO DE TEXTO (CHUNKS RANKED) ---\n"
@@ -467,52 +515,62 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             score_info = f" (Score: {round(score, 3)})"
             context_str += f"[Chunk {i+1} from {chunk['file_path']}]{score_info}:\n{chunk['content']}\n\n"
             sources.append({
-                "title": chunk["file_path"],
-                "chunk_id": chunk["chunk_id"],
-                "score": round(score, 3)
+                "file": chunk["file_path"],
+                "chunk_id": chunk["chunk_id"][:8],
+                "score": round(score, 3),
+                "mode": search_mode
             })
             
-        if verbose:
-            console.print(f"[bold green]Final context: {len(entities)} entities, {len(relations)} relations, {len(final_chunks)} ranked chunks[/bold green]")
-        
         # 5. Resposta do LLM com Grounding Forçado
         system_prompt = (
-            f"Você é Antigravity, o assistente técnico especialista em NixOS e IA do projeto Kryonix.\n"
-            f"Seu objetivo é fornecer respostas precisas, técnicas e acionáveis baseadas EXCLUSIVAMENTE no contexto fornecido.\n"
-            f"Regras:\n"
-            f"1. Responda em {target_lang}.\n"
-            f"2. Use o contexto de ENTIDADES, RELAÇÕES e CHUNKS abaixo.\n"
-            f"3. Se a informação não estiver no contexto, diga claramente 'Não encontrei informações específicas sobre isso no meu cérebro técnico'.\n"
-            f"4. Cite os arquivos de origem (ex: [FILE: path/to/file.nix]) quando mencionar algo vindo deles.\n"
-            f"5. Preserve comandos, paths e nomes de módulos Nix no original.\n"
-            f"6. Não mencione OpenAI, GPT ou modelos genéricos se não estiverem no contexto.\n\n"
-            f"CONTEXTO:\n{context_str}"
+            f"{ANSWER_SYSTEM_PROMPT}\n\n"
+            f"CONTEXTO RECUPERADO:\n{context_str}"
         )
         prompt = f"Pergunta: {term}"
         
-        # no_cache support could be added here if llm_func supported it
         answer = await llm_func(prompt, system_prompt=system_prompt)
         
-        return {
+        # Pós-processamento anti-alucinação ESPECÍFICO para o pipeline RAG do Kryonix
+        if is_pipeline_query:
+            prohibited_terms = [
+                "reasoning and action graph", "sensores iot", "controlar dispositivos",
+                "ações físicas"
+            ]
+            if any(pt in answer.lower() for pt in prohibited_terms):
+                console.print("[red][HARDEN] Resposta descartada por conter termos alucinados proibidos para o pipeline RAG.[/red]")
+                return {
+                    "status": "blocked",
+                    "answer": "Não encontrei grounding suficiente no Vault/índice atual para descrever o pipeline RAG do Kryonix com segurança (evitando termos não fundamentados).",
+                    "confidence": "None",
+                    "sources": sources
+                }
+
+        res_dict = {
             "status": "success",
             "answer": answer,
-            "grounding": {
-                "entities": len(entities),
-                "relations": len(relations),
-                "chunks": len(final_chunks)
-            },
+            "confidence": confidence,
+            "max_score": round(max_score, 3),
             "sources": sources,
-            "warnings": []
+            "mode": search_mode,
+            "strategy": strategy["strategy"]
         }
+        
+        if explain:
+            # Apenas adiciona meta-informação, sem duplicar a lista de fontes que a CLI já mostra
+            res_dict["answer"] += f"\n\n---\n**Metadados da Busca:**\n- Modo: `{search_mode}`\n- Estratégia: `{strategy['strategy']}`\n- Confiança: `{confidence}` ({round(max_score, 3)})"
+            
+        return res_dict
+        
     except Exception as e:
-        logger_error = str(e)
+        logger.error(f"Query failed: {e}")
         if verbose:
             import traceback
             console.print(traceback.format_exc())
         return {
             "status": "error",
-            "answer": f"Erro crítico no processamento da consulta: {logger_error}",
-            "warnings": [logger_error]
+            "answer": f"Ocorreu um erro técnico ao processar sua pergunta: {str(e)}",
+            "confidence": "None",
+            "sources": []
         }
 
 async def get_query_context(term: str, mode: str = "hybrid") -> dict:

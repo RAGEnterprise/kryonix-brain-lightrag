@@ -33,7 +33,11 @@ from rich.table import Table
 
 from . import config
 from . import rag as rag_mod
-from .index import cmd_index, cmd_vault_scan, cmd_repair_vdb, cmd_repair_graph
+from .index import (
+    cmd_index, cmd_vault_scan, cmd_repair_vdb, cmd_repair_graph,
+    cmd_ingest_list, cmd_ingest_approve, cmd_ingest_reject, 
+    cmd_vault_curate, cmd_vault_sync_docs
+)
 from .graph_utils import generate_mocs, export_obsidian, heal_graph, validate_graphml
 
 import time
@@ -44,6 +48,10 @@ async def cmd_vault(args):
     """Vault operations."""
     if args.sub == "scan":
         cmd_vault_scan()
+    elif args.sub == "curate":
+        await cmd_vault_curate(dry_run=not getattr(args, "apply", False))
+    elif args.sub == "sync-docs":
+        await cmd_vault_sync_docs(dry_run=not getattr(args, "apply", False))
     elif args.sub == "index":
         # Index incremental ou full
         class Args:
@@ -105,6 +113,10 @@ async def cmd_brain(args):
                 await cmd_repair_graph()
                 log_sync("[step] Re-executando Doctor...[/step]")
                 await cmd_doctor(DoctorArgs())
+            
+            # 1.5 Sync Docs to Vault
+            log_sync("\n[step] 1.5/6: Syncing Docs to Vault[/step]")
+            await cmd_vault_sync_docs(dry_run=False) # No sync, we want the real copy
             
             # 2. Vault Scan
             log_sync("\n[step] 2/6: Vault Scan[/step]")
@@ -226,7 +238,13 @@ async def cmd_search(args):
         console.print(t)
         console.print()
 
-    res = await rag_mod.query(args.term, mode=mode, lang=lang, verbose=verbose)
+    res = await rag_mod.query(
+        " ".join(args.term), 
+        mode=mode, 
+        lang=lang, 
+        verbose=verbose,
+        explain=getattr(args, "explain", False)
+    )
     
     # Handle dict vs string return (backwards compatibility or new format)
     if isinstance(res, dict):
@@ -245,9 +263,13 @@ async def cmd_search(args):
             console.print(Markdown(answer))
             
             if sources:
-                console.print("\n[bold]Fontes Utilizadas:[/bold]")
+                console.print("\n[bold]Fontes usadas:[/bold]")
                 for i, src in enumerate(sources[:5]): # Show top 5
-                    console.print(f"  {i+1}. {src['title']} (Score: {src['score']})")
+                    title = src.get('file') or src.get('title') or src.get('path') or "fonte desconhecida"
+                    score = src.get('score', 'n/a')
+                    chunk = src.get('chunk_id') or src.get('chunk') or "unknown"
+                    mode = src.get('mode') or src.get('retrieval_mode') or "hybrid"
+                    console.print(f"  {i+1}. {title} | chunk: {chunk} | score: {score} | modo: {mode}")
                 if len(sources) > 5:
                     console.print(f"  ... e mais {len(sources)-5} chunks.")
             
@@ -1000,6 +1022,7 @@ def main():
         sp.add_argument("term", nargs="+")
         sp.add_argument("--lang", default="pt-BR", help="Response language (default: pt-BR)")
         sp.add_argument("--verbose", action="store_true", help="Show retrieval diagnostics")
+        sp.add_argument("--explain", action="store_true", help="Show grounding sources and confidence")
         sp.set_defaults(func=cmd_search, mode=mode)
 
     # cache
@@ -1069,6 +1092,14 @@ def main():
     sp_v_idx.add_argument("--verbose", action="store_true", help="Log detalhado de arquivos e chunks")
     sp_v_idx.add_argument("--full", action="store_true", help="Força reindexação completa ignorando manifest")
     sp_v_idx.add_argument("--profile", default="", help="Perfil de recursos: safe | balanced | query")
+    
+    sp_v_curate = sp_v_sub.add_parser("curate", help="Auto-curadoria: identifica links quebrados e órfãos")
+    sp_v_curate.add_argument("--apply", action="store_true", help="Aplica marcações de revisão (perigoso)")
+    sp_v_curate.add_argument("--dry-run", action="store_true", default=True, help="Não faz alterações (padrão)")
+    
+    sp_v_sync = sp_v_sub.add_parser("sync-docs", help="Sincroniza docs/ para o Vault")
+    sp_v_sync.add_argument("--apply", action="store_true", help="Efetua a cópia real")
+    
     sp_vault.set_defaults(func=cmd_vault)
 
     # graph
@@ -1110,6 +1141,19 @@ def main():
     sp_test.add_argument("target", nargs="?", default="all")
     sp_test.set_defaults(func=cmd_test)
     
+    # ingestion
+    sp_ingest = sub.add_parser("ingest", help="Manage ingestion queue")
+    isp = sp_ingest.add_subparsers(dest="ingest_sub")
+    isp.add_parser("list", help="List pending items in queue").set_defaults(func=lambda args: cmd_ingest_list())
+    
+    isp_approve = isp.add_parser("approve", help="Approve and index a queued item")
+    isp_approve.add_argument("item_id", help="Item ID to approve")
+    isp_approve.set_defaults(func=lambda args: cmd_ingest_approve(args.item_id))
+    
+    isp_reject = isp.add_parser("reject", help="Reject a queued item")
+    isp_reject.add_argument("item_id", help="Item ID to reject")
+    isp_reject.set_defaults(func=lambda args: cmd_ingest_reject(args.item_id))
+
     # diagnostics
     sub.add_parser("diagnostics", help="Auditoria profunda de grounding").set_defaults(func=cmd_diagnostics)
 

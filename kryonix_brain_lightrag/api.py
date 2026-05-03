@@ -2,12 +2,14 @@ import os
 import json
 import logging
 import uuid
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from . import rag as rag_mod
+from .utils import SecretScanner
 
 # Configuração de log
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +24,19 @@ async def get_api_key(api_key: str = Depends(api_key_header)):
         raise HTTPException(status_code=403, detail="Acesso negado: API Key inválida")
     return api_key
 
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from fastapi import Response
+
+# Metrics
+SEARCH_LATENCY = Histogram("kryonix_brain_search_latency_seconds", "Latency of search requests")
+SEARCH_COUNT = Counter("kryonix_brain_search_total", "Total search requests")
+INGEST_COUNT = Counter("kryonix_brain_ingest_proposals_total", "Total ingestion proposals", ["source"])
+
 app = FastAPI(title="Kryonix Brain API")
+
+@app.get("/metrics")
+async def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 class SearchRequest(BaseModel):
     query: str
@@ -30,6 +44,7 @@ class SearchRequest(BaseModel):
     lang: str = "pt-BR"
     no_cache: bool = False
     debug: bool = False
+    explain: bool = False
 
 class SearchResponse(BaseModel):
     status: str = "success"
@@ -42,6 +57,16 @@ class IngestProposeRequest(BaseModel):
     content: str = Field(..., description="Conteúdo a ser ingerido no grafo LightRAG")
     source: str = Field(..., description="Origem do conteúdo (ex.: 'manual', 'vault/note.md', 'web')")
     reason: str = Field("", description="Motivo da ingestão")
+
+class NoteProposeRequest(BaseModel):
+    title: str = Field(..., description="Título da nota (será slugificado)")
+    content: str = Field(..., description="Conteúdo da nota em Markdown")
+    source: str = Field(..., description="Origem da informação")
+    reason: str = Field(..., description="Motivo da criação da nota")
+
+class EventLogRequest(BaseModel):
+    event: str = Field(..., description="Descrição do evento")
+    metadata: dict = Field(default_factory=dict, description="Metadados adicionais")
 
 class IngestApproveRequest(BaseModel):
     item_id: str = Field(..., description="ID do item na fila de ingestão")
@@ -63,14 +88,33 @@ async def stats(api_key: str = Depends(get_api_key)):
 @app.post("/search", response_model=SearchResponse)
 async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
     try:
-        logger.info(f"Searching: {req.query} (mode={req.mode}, lang={req.lang})")
+        t0 = datetime.now().timestamp()
+        SEARCH_COUNT.inc()
+        
+        request_id = str(uuid.uuid4())[:8]
+        logger.info(f"[{request_id}] Searching: {req.query} (mode={req.mode}, lang={req.lang})")
+        
         res = await rag_mod.query(
             req.query, 
             mode=req.mode, 
             lang=req.lang, 
             no_cache=req.no_cache,
-            verbose=req.debug
+            verbose=req.debug,
+            explain=req.explain
         )
+        
+        latency = datetime.now().timestamp() - t0
+        SEARCH_LATENCY.observe(latency)
+        
+        # Ensure grounding dict exists for tracing metadata
+        if "grounding" not in res:
+            res["grounding"] = {}
+            
+        res["grounding"]["trace_id"] = request_id
+        res["grounding"]["latency_sec"] = round(latency, 3)
+        res["grounding"]["confidence"] = res.get("confidence", "Unknown")
+        res["grounding"]["max_score"] = res.get("max_score", 0.0)
+        
         return SearchResponse(**res)
     except Exception as e:
         logger.error(f"Error during search: {e}")
@@ -93,19 +137,74 @@ def _get_approved_dir() -> Path:
 @app.post("/ingest/propose")
 async def ingest_propose(req: IngestProposeRequest, api_key: str = Depends(get_api_key)):
     """Propõe conteúdo para ingestão. Não indexa — fica na fila até approve."""
+    
+    # 1. Secret Scanning & Redaction
+    sanitized_content, findings = SecretScanner.scan_and_redact(req.content)
+    
+    INGEST_COUNT.labels(source=req.source).inc()
+    
     item_id = str(uuid.uuid4())[:8]
     item = {
         "id": item_id,
-        "content": req.content,
+        "content": sanitized_content,
         "source": req.source,
         "reason": req.reason,
         "status": "pending",
         "proposed_at": datetime.now(timezone.utc).isoformat(),
+        "security_findings": findings
     }
     path = _get_queue_dir() / f"{item_id}.json"
     path.write_text(json.dumps(item, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info(f"Ingest proposed: {item_id} from {req.source}")
-    return {"status": "queued", "id": item_id}
+    
+    msg = f"Ingest proposed: {item_id} from {req.source}"
+    if findings:
+        msg += f" (Security warnings: {', '.join(findings)})"
+    logger.info(msg)
+    
+    return {
+        "status": "queued", 
+        "id": item_id, 
+        "security_alerts": findings if findings else None
+    }
+
+@app.post("/notes/propose")
+async def notes_propose(req: NoteProposeRequest, api_key: str = Depends(get_api_key)):
+    """Propõe uma nota para o Vault (00-inbox/ai-proposals)."""
+    from .obsidian_cli import obsidian_propose_note
+    try:
+        # Sanitize note content too
+        sanitized_content, findings = SecretScanner.scan_and_redact(req.content)
+        
+        result = obsidian_propose_note(
+            title=req.title,
+            content=sanitized_content,
+            source=req.source,
+            reason=req.reason
+        )
+        return {"status": "proposed", "message": result, "security_alerts": findings if findings else None}
+    except Exception as e:
+        logger.error(f"Error proposing note: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/events/log")
+async def events_log(req: EventLogRequest, api_key: str = Depends(get_api_key)):
+    """Registra um evento de interação no log do sistema."""
+    from .config import BRAIN_HOME
+    log_dir = BRAIN_HOME / "vault/90-logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Sanitize metadata for safety
+    log_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": req.event,
+        "metadata": req.metadata
+    }
+    
+    log_file = log_dir / f"events-{datetime.now().strftime('%Y-%m')}.jsonl"
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\\n")
+        
+    return {"status": "logged"}
 
 @app.get("/ingest/queue")
 async def ingest_queue(api_key: str = Depends(get_api_key)):
