@@ -25,7 +25,7 @@ from .config import (
 from .llm import embedding_func, llm_func
 
 from rich.console import Console
-console = Console()
+console = Console(stderr=True)
 
 # ── Persistence Hardening (Monkey-Patching) ───────────────────────
 
