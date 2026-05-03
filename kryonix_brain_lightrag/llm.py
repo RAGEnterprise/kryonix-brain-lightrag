@@ -106,7 +106,7 @@ async def llm_func(
                 model=LIGHTRAG_LLM_MODEL,
                 messages=messages,
                 options={
-                    "num_ctx": 4096,
+                    "num_ctx": 16384,
                     "temperature": 0.1 if retry_count == 0 else 0.05, # Reduce temp on retry
                     "num_predict": int(kwargs.get("num_predict", 1024)),
                 },

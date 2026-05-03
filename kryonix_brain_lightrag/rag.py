@@ -120,7 +120,7 @@ We need a RICHER graph. Do not be afraid to extract multiple entities and many r
 1. Identify all entities. For each entity, extract:
    - name: name of the entity, capitalized
    - type: type of the entity (e.g., ORGANIZATION, PERSON, TECHNOLOGY, CONFIG, FILE, NIX_MODULE, HOME_MANAGER_CONFIG, FLAKE_INPUT, SYSTEMD_SERVICE, FUNCTION, HARDWARE, ARCHITECTURE, etc.)
-   - description: comprehensive summary of the entity's role and importance.
+   - description: comprehensive summary of the entity's role and importance based ONLY on the provided text.
 
 2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are related.
    Focus on FUNCTIONAL, ARCHITECTURAL, and CONCEPTUAL relationships.
@@ -140,6 +140,11 @@ relation<|#|>source_entity<|#|>target_entity<|#|>relationship_keywords<|#|>relat
 - Output only the lines in the specified format. No intro/outro.
 - EVERY chunk MUST have at least 2 entities and 1 relationship if possible.
 - If no clear relationship exists, create a "relates_to" relationship between the main entity and the most relevant context.
+- STALENESS/HALLUCINATION GUARD:
+  1. Use ONLY information provided in the -Data- section.
+  2. DO NOT invent definitions for acronyms (like RAG) if they are not explicitly defined in the text.
+  3. DO NOT assume project architecture details not present in the snippet.
+  4. If the text says "RAG means X", then RAG means X. Do not say "RAG also means Y" if Y is not in the text.
 - IMPORTANT: When finished, you MUST output the exact string "<|COMPLETE|>" on a new line.
 
 -Data-
@@ -484,8 +489,16 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 "sources": []
             }
             
-        # 4. Construção do Contexto
-        final_chunks = ranked_chunks[:top_k_chunks]
+        # 4. Construção do Contexto (com filtro de arquivos canônicos)
+        # Priorizar arquivos que NÃO estão no archive ou legacy
+        canonical_chunks = [c for c in ranked_chunks if "archive" not in c['file_path'].lower() and "legacy" not in c['file_path'].lower()]
+        archive_chunks = [c for c in ranked_chunks if "archive" in c['file_path'].lower() or "legacy" in c['file_path'].lower()]
+        
+        # Se temos chunks canônicos suficientes, usamos apenas eles. 
+        # Caso contrário, complementamos com archive apenas para não ficar sem nada, 
+        # mas os canônicos vêm primeiro.
+        ordered_chunks = canonical_chunks + archive_chunks
+        final_chunks = ordered_chunks[:top_k_chunks]
         
         # Threshold de confiança baseado no melhor score
         max_score = final_chunks[0].get("score", 0.0) if final_chunks else 0.0
@@ -513,7 +526,9 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         for i, chunk in enumerate(final_chunks):
             score = chunk.get("score", 0.0)
             score_info = f" (Score: {round(score, 3)})"
-            context_str += f"[Chunk {i+1} from {chunk['file_path']}]{score_info}:\n{chunk['content']}\n\n"
+            # Marcar se é archive para transparência no prompt
+            is_archived = "[ARCHIVE] " if "archive" in chunk['file_path'].lower() or "legacy" in chunk['file_path'].lower() else ""
+            context_str += f"{is_archived}[Chunk {i+1} from {chunk['file_path']}]{score_info}:\n{chunk['content']}\n\n"
             sources.append({
                 "file": chunk["file_path"],
                 "chunk_id": chunk["chunk_id"][:8],
@@ -524,7 +539,9 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         # 5. Resposta do LLM com Grounding Forçado
         system_prompt = (
             f"{ANSWER_SYSTEM_PROMPT}\n\n"
-            f"CONTEXTO RECUPERADO:\n{context_str}"
+            f"CONTEXTO RECUPERADO:\n{context_str}\n\n"
+            f"Lembre-se: Responda APENAS com base no contexto acima. Se a informação não estiver lá, diga que não sabe.\n"
+            f"Importante: Ignore informações em chunks marcados como [ARCHIVE] se houver conflito com chunks canônicos."
         )
         prompt = f"Pergunta: {term}"
         
@@ -534,13 +551,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         if is_pipeline_query:
             prohibited_terms = [
                 "reasoning and action graph", "sensores iot", "controlar dispositivos",
-                "ações físicas"
+                "ações físicas", "executor de ações", "motor de razão", "imagens", "áudio"
             ]
             if any(pt in answer.lower() for pt in prohibited_terms):
-                console.print("[red][HARDEN] Resposta descartada por conter termos alucinados proibidos para o pipeline RAG.[/red]")
+                console.print(f"[red][HARDEN] Resposta bloqueada. Termo proibido detectado na query de pipeline.[/red]")
                 return {
                     "status": "blocked",
-                    "answer": "Não encontrei grounding suficiente no Vault/índice atual para descrever o pipeline RAG do Kryonix com segurança (evitando termos não fundamentados).",
+                    "answer": "Não encontrei grounding suficiente no Vault/índice atual para descrever o pipeline RAG do Kryonix com segurança (bloqueio de alucinação).",
                     "confidence": "None",
                     "sources": sources
                 }

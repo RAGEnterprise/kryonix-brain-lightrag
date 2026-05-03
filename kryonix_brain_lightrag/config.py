@@ -105,7 +105,7 @@ PROFILES: dict[str, dict] = {
         "index_batch_size": 1,
     },
     "balanced": {
-        "llm_model": "llama3.1:8b",
+        "llm_model": "qwen2.5-coder:7b",
         "llm_model_max_async": 1,
         "max_parallel_insert": 1,
         "embedding_batch_num": 1,

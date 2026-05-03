@@ -52,6 +52,8 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+norecursedirs = ["result", "node_modules", ".direnv", "dist", "build", ".git", "target"]
 markers = [
     "asyncio: mark test as async",
 ]
