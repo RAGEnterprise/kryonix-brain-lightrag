@@ -3,6 +3,13 @@ import json
 import sys
 import os
 from pathlib import Path
+
+# --- MCP Stdio Silence ---
+# Redirect all stdout to stderr immediately to avoid corrupting the MCP JSON-RPC stream.
+# The MCP stdio transport uses the original stdout for communication.
+original_stdout = sys.stdout
+sys.stdout = sys.stderr
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
@@ -412,14 +419,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error executing {name}: {str(e)}")]
 
 def main():
-    # Redirect all stdout to stderr to avoid corrupting the MCP JSON-RPC stream
-    # The MCP stdio transport uses stdout for communication.
-    original_stdout = sys.stdout
-    sys.stdout = sys.stderr
-
     async def run():
-        async with stdio_server() as (read_stream, write_stream):
-            # The stdio_server context manager will use the original_stdout for its own stream
+        async with stdio_server(sys.stdin.buffer, original_stdout.buffer) as (read_stream, write_stream):
             await app.run(
                 read_stream, write_stream,
                 app.create_initialization_options(),

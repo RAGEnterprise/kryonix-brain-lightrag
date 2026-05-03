@@ -87,7 +87,7 @@ def _apply_persistence_hardening():
 
     lr_utils.write_json = hardened_write_json
     
-    console.print("[green][SYSTEM] Persistence hardening applied (Atomic Writes enabled).[/green]")
+    # console.print("[green][SYSTEM] Persistence hardening applied (Atomic Writes enabled).[/green]")
 
 # Apply immediately on import
 try:
