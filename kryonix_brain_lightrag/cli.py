@@ -16,6 +16,11 @@ Subcomandos:
   rag shell              - REPL interativo
   rag mcp-check          - verifica registro MCP em .mcp.json
   rag diagnostics        - auditoria profunda de grounding e integridade
+  rag cag build          - build CAG pack (Context-Augmented Generation)
+  rag cag status         - status of existing CAG pack
+  rag cag route "query"  - route query to most relevant files
+  rag cag ask "query"    - alias for route
+  rag cag clear-cache    - clear CAG pack directory
 """
 
 import argparse
@@ -823,7 +828,73 @@ async def cmd_doctor(args):
     except Exception as e:
         console.print(f"[red][FAIL][/red] MCP server import error: {e}")
 
+async def cmd_cag(args):
+    """CAG pack builder and router (Context-Augmented Generation)."""
+    import importlib
+    try:
+        cag_mod = importlib.import_module("kryonix_brain_lightrag.cag")
+    except ImportError as e:
+        console.print(f"[red][FAIL][/red] Cannot import cag module: {e}")
+        return
+
+    from pathlib import Path
+
+    cag_sub = getattr(args, "cag_sub", None)
+
+    default_dir = Path(os.environ.get("LIGHTRAG_CAG_DIR", "/tmp/kryonix-cag"))
+
+    if cag_sub == "build":
+        repo = Path(getattr(args, "repo", "/etc/kryonix"))
+        out = Path(getattr(args, "out", None) or default_dir)
+        profile = getattr(args, "profile", "kryonix-core")
+        try:
+            result = cag_mod.build(profile=profile, repo=repo, out=out)
+            console.print(f"[green][OK][/green] CAG pack built: {out}")
+            print(json.dumps(result, indent=2))
+        except Exception as e:
+            console.print(f"[red][FAIL][/red] cag build error: {e}")
+
+    elif cag_sub == "status":
+        cag_dir = Path(getattr(args, "dir", None) or default_dir)
+        try:
+            result = cag_mod.status(cag_dir=cag_dir)
+            print(json.dumps(result, indent=2))
+        except Exception as e:
+            console.print(f"[red][FAIL][/red] cag status error: {e}")
+
+    elif cag_sub in ("route", "ask"):
+        query_parts = getattr(args, "query", [])
+        query = " ".join(query_parts) if isinstance(query_parts, list) else query_parts
+        cag_dir = Path(getattr(args, "dir", None) or default_dir)
+        top_k = getattr(args, "top_k", 10)
+        try:
+            result = cag_mod.route(query=query, cag_dir=cag_dir, top_k=top_k)
+            # Print matched files to stdout
+            print(json.dumps(result, indent=2))
+            if result.get("matched_files"):
+                console.print(f"\n[bold]Top {len(result['matched_files'])} files for query:[/bold] [cyan]{query}[/cyan]")
+                for i, f in enumerate(result["matched_files"][:10], 1):
+                    console.print(f"  [dim]{i}.[/dim] [green]{f['path']}[/green] (score={f.get('score', '?')})")
+        except Exception as e:
+            console.print(f"[red][FAIL][/red] cag route error: {e}")
+
+    elif cag_sub == "clear-cache":
+        cag_dir = Path(getattr(args, "dir", None) or default_dir)
+        try:
+            result = cag_mod.clear_cache(cag_dir=cag_dir)
+            print(json.dumps(result, indent=2))
+        except Exception as e:
+            console.print(f"[red][FAIL][/red] cag clear-cache error: {e}")
+
+    else:
+        # Show backend info when no subcommand
+        info = cag_mod.backend_info()
+        print(json.dumps(info, indent=2))
+        console.print("[dim]Usage: rag cag [build|status|route|ask|clear-cache][/dim]")
+
+
 async def cmd_ollama_check(args):
+
     """Test local Ollama models."""
     console.print("[bold cyan]Ollama Check[/bold cyan]")
     from .llm import llm_func, embedding_func, LIGHTRAG_LLM_MODEL, LIGHTRAG_EMBED_MODEL
@@ -1156,6 +1227,38 @@ def main():
 
     # diagnostics
     sub.add_parser("diagnostics", help="Auditoria profunda de grounding").set_defaults(func=cmd_diagnostics)
+
+    # ── CAG — Context-Augmented Generation ──────────────────────────────────
+    sp_cag = sub.add_parser("cag", help="CAG pack builder and router (Rust-backed)")
+    cag_sub = sp_cag.add_subparsers(dest="cag_sub", help="cag subcommand")
+
+    sp_cag_build = cag_sub.add_parser("build", help="Build a CAG context pack")
+    sp_cag_build.add_argument("--profile", default="kryonix-core", help="Profile: kryonix-core (default) or kryonix-vault")
+    sp_cag_build.add_argument("--repo", default="/etc/kryonix", help="Repository root")
+    sp_cag_build.add_argument("--out", default=None, help="Output directory (defaults to LIGHTRAG_CAG_DIR or /tmp/kryonix-cag)")
+    sp_cag_build.set_defaults(func=cmd_cag)
+
+    sp_cag_status = cag_sub.add_parser("status", help="Show status of existing CAG pack")
+    sp_cag_status.add_argument("--dir", default=None, help="CAG directory")
+    sp_cag_status.set_defaults(func=cmd_cag)
+
+    sp_cag_route = cag_sub.add_parser("route", help="Route query to relevant files")
+    sp_cag_route.add_argument("query", nargs="+", help="Query string")
+    sp_cag_route.add_argument("--dir", default=None, help="CAG directory")
+    sp_cag_route.add_argument("--top-k", type=int, default=10)
+    sp_cag_route.set_defaults(func=cmd_cag)
+
+    sp_cag_ask = cag_sub.add_parser("ask", help="Alias for route")
+    sp_cag_ask.add_argument("query", nargs="+", help="Query string")
+    sp_cag_ask.add_argument("--dir", default=None, help="CAG directory")
+    sp_cag_ask.add_argument("--top-k", type=int, default=10)
+    sp_cag_ask.set_defaults(func=cmd_cag)
+
+    sp_cag_clear = cag_sub.add_parser("clear-cache", help="Clear CAG pack directory")
+    sp_cag_clear.add_argument("--dir", default=None, help="CAG directory")
+    sp_cag_clear.set_defaults(func=cmd_cag)
+
+    sp_cag.set_defaults(func=cmd_cag)
 
     args = p.parse_args()
     if hasattr(args, "term") and isinstance(args.term, list):
