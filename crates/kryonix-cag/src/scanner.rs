@@ -10,10 +10,10 @@ use tracing::{debug, warn};
 /// A file discovered during scan, ready for inclusion in a CAG manifest
 #[derive(Debug, Clone)]
 pub struct ScannedFile {
-    pub path: String,  // relative to repo root
+    pub path: String, // relative to repo root
     pub size_bytes: u64,
     pub blake3: String,
-    pub content: String, // filtered, safe
+    pub content: String,   // filtered, safe
     pub tags: Vec<String>, // semantic tags for routing
 }
 
@@ -23,42 +23,117 @@ fn derive_tags(rel_path: &str) -> Vec<String> {
     let p = rel_path.to_lowercase();
 
     // Host-based tags
-    if p.contains("hosts/glacier") { tags.push("glacier".into()); }
-    if p.contains("hosts/inspiron") { tags.push("inspiron".into()); }
-    if p.contains("hosts/") { tags.push("host-config".into()); }
+    if p.contains("hosts/glacier") {
+        tags.push("glacier".into());
+    }
+    if p.contains("hosts/inspiron") {
+        tags.push("inspiron".into());
+    }
+    if p.contains("hosts/") {
+        tags.push("host-config".into());
+    }
 
     // Module-based tags
-    if p.contains("modules/") { tags.push("nixos-module".into()); }
-    if p.contains("profiles/") { tags.push("profile".into()); }
-    if p.contains("features/") { tags.push("feature".into()); }
-    if p.contains("home/") { tags.push("home-manager".into()); }
-    if p.contains("desktop/") || p.contains("hyprland") { tags.push("desktop".into()); }
-    if p.contains("packages/") { tags.push("package".into()); }
+    if p.contains("modules/") {
+        tags.push("nixos-module".into());
+    }
+    if p.contains("profiles/") {
+        tags.push("profile".into());
+    }
+    if p.contains("features/") {
+        tags.push("feature".into());
+    }
+    if p.contains("home/") {
+        tags.push("home-manager".into());
+    }
+    if p.contains("desktop/") || p.contains("hyprland") {
+        tags.push("desktop".into());
+    }
+    if p.contains("packages/") {
+        tags.push("package".into());
+    }
 
     // Service/topic tags
-    if p.contains("nvidia") || p.contains("gpu") { tags.push("gpu".into()); }
-    if p.contains("ollama") { tags.push("ollama".into()); }
-    if p.contains("brain") { tags.push("brain".into()); }
-    if p.contains("lightrag") { tags.push("lightrag".into()); }
-    if p.contains("mcp") { tags.push("mcp".into()); }
-    if p.contains("tailscale") { tags.push("tailscale".into()); }
-    if p.contains("audio") || p.contains("pipewire") { tags.push("audio".into()); }
-    if p.contains("bluetooth") { tags.push("bluetooth".into()); }
-    if p.contains("storage") || p.contains("disk") || p.contains("btrfs") { tags.push("storage".into()); }
-    if p.contains("networking") || p.contains("firewall") { tags.push("networking".into()); }
-    if p.contains("gaming") || p.contains("steam") { tags.push("gaming".into()); }
-    if p.contains("virtuali") || p.contains("libvirt") { tags.push("virtualization".into()); }
-    if p.contains("ssh") { tags.push("ssh".into()); }
+    if p.contains("nvidia") || p.contains("gpu") {
+        tags.push("gpu".into());
+    }
+    if p.contains("ollama") {
+        tags.push("ollama".into());
+    }
+    if p.contains("brain") {
+        tags.push("brain".into());
+    }
+    if p.contains("lightrag") {
+        tags.push("lightrag".into());
+    }
+    if p.contains("mcp") {
+        tags.push("mcp".into());
+    }
+    if p.contains("tailscale") {
+        tags.push("tailscale".into());
+    }
+    if p.contains("audio") || p.contains("pipewire") {
+        tags.push("audio".into());
+    }
+    if p.contains("bluetooth") {
+        tags.push("bluetooth".into());
+    }
+    if p.contains("nixos-local-knowledge-sources") || p.contains("nixos-local-sources") {
+        tags.push("local-sources".into());
+    }
+    if p.contains("cli") || p.contains("command") || p.contains("commands") || p.contains("usage") {
+        tags.push("cli".into());
+    }
+    if p.contains("operations")
+        || p.contains("rebuild")
+        || p.contains("switch")
+        || p.contains("doctor")
+    {
+        tags.push("operations".into());
+    }
+    if p.contains("storage") || p.contains("disk") || p.contains("btrfs") {
+        tags.push("storage".into());
+    }
+    if p.contains("networking") || p.contains("firewall") {
+        tags.push("networking".into());
+    }
+    if p.contains("gaming") || p.contains("steam") {
+        tags.push("gaming".into());
+    }
+    if p.contains("virtuali") || p.contains("libvirt") {
+        tags.push("virtualization".into());
+    }
+    if p.contains("ssh") {
+        tags.push("ssh".into());
+    }
 
     // File type tags
-    if p.ends_with(".nix") { tags.push("nix".into()); }
-    if p.ends_with(".md") { tags.push("docs".into()); }
-    if p.ends_with(".toml") { tags.push("toml".into()); }
-    if p.ends_with(".json") { tags.push("json".into()); }
+    if p.ends_with(".nix") {
+        tags.push("nix".into());
+    }
+    if p.ends_with(".md") {
+        tags.push("docs".into());
+    }
+    if p.ends_with(".toml") {
+        tags.push("toml".into());
+    }
+    if p.ends_with(".json") {
+        tags.push("json".into());
+    }
 
     // Special files
-    if p == "flake.nix" || p.ends_with("/flake.nix") { tags.push("flake".into()); }
-    if p.contains("agents.md") || p.contains("agents/") { tags.push("agent".into()); }
+    if p == "flake.nix" || p.ends_with("/flake.nix") {
+        tags.push("flake".into());
+    }
+    if p.contains("agents.md") || p.contains("agents/") {
+        tags.push("agent".into());
+    }
+    if p.contains("docs/cli.md") || p.ends_with("cli.md") || p.contains("kryonix-cli") {
+        tags.push("cli".into());
+    }
+    if p.contains("docs/operations.md") || p.ends_with("operations.md") {
+        tags.push("operations".into());
+    }
 
     tags.sort();
     tags.dedup();
@@ -104,18 +179,20 @@ pub fn scan_repo(repo_root: &Path, profile: &Profile) -> Result<Vec<ScannedFile>
         };
 
         // Check exclude patterns first
-        let excluded = profile.exclude_patterns.iter().any(|pat| {
-            glob_match(pat, &rel_path)
-        });
+        let excluded = profile
+            .exclude_patterns
+            .iter()
+            .any(|pat| glob_match(pat, &rel_path));
         if excluded {
             debug!("Excluding: {}", rel_path);
             continue;
         }
 
         // Check include patterns
-        let included = profile.include_patterns.iter().any(|pat| {
-            glob_match(pat, &rel_path)
-        });
+        let included = profile
+            .include_patterns
+            .iter()
+            .any(|pat| glob_match(pat, &rel_path));
         if !included {
             continue;
         }
@@ -123,7 +200,10 @@ pub fn scan_repo(repo_root: &Path, profile: &Profile) -> Result<Vec<ScannedFile>
         // Read and check size
         let metadata = match std::fs::metadata(abs_path) {
             Ok(m) => m,
-            Err(e) => { warn!("Metadata error {}: {}", rel_path, e); continue; }
+            Err(e) => {
+                warn!("Metadata error {}: {}", rel_path, e);
+                continue;
+            }
         };
         let size_bytes = metadata.len();
         if size_bytes > profile.max_file_bytes as u64 {
@@ -134,7 +214,10 @@ pub fn scan_repo(repo_root: &Path, profile: &Profile) -> Result<Vec<ScannedFile>
         // Read content
         let raw = match std::fs::read(abs_path) {
             Ok(b) => b,
-            Err(e) => { warn!("Read error {}: {}", rel_path, e); continue; }
+            Err(e) => {
+                warn!("Read error {}: {}", rel_path, e);
+                continue;
+            }
         };
 
         // Skip binary files (null bytes)
@@ -197,7 +280,9 @@ fn glob_match_impl(pat: &str, path: &str) -> bool {
     let path = path.replace('\\', "/");
 
     // Fast cases
-    if pat == "**" || pat == "**/*" { return true; }
+    if pat == "**" || pat == "**/*" {
+        return true;
+    }
 
     let pat_parts: Vec<&str> = pat.split('/').collect();
     let path_parts: Vec<&str> = path.split('/').collect();
@@ -230,24 +315,33 @@ fn glob_match_parts(pat: &[&str], path: &[&str]) -> bool {
 }
 
 fn segment_matches(pat: &str, seg: &str) -> bool {
-    if pat == "*" { return true; }
-    if !pat.contains('*') { return pat == seg; }
+    if pat == "*" {
+        return true;
+    }
+    if !pat.contains('*') {
+        return pat == seg;
+    }
 
     // Simple wildcard: split on * and check prefix/suffix
     let parts: Vec<&str> = pat.split('*').collect();
     let mut pos = 0usize;
     let seg_bytes = seg.as_bytes();
     for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() { continue; }
+        if part.is_empty() {
+            continue;
+        }
         let part_bytes = part.as_bytes();
         if i == 0 {
             // Must be prefix
-            if !seg.starts_with(part) { return false; }
+            if !seg.starts_with(part) {
+                return false;
+            }
             pos = part.len();
         } else {
             // Find part after pos
             let remaining = &seg_bytes[pos..];
-            let found = remaining.windows(part_bytes.len())
+            let found = remaining
+                .windows(part_bytes.len())
                 .position(|w| w == part_bytes);
             match found {
                 Some(idx) => pos += idx + part.len(),
@@ -258,7 +352,9 @@ fn segment_matches(pat: &str, seg: &str) -> bool {
     // Last part must be suffix if pattern doesn't end with *
     if !pat.ends_with('*') {
         let last = parts.last().unwrap();
-        if !last.is_empty() && !seg.ends_with(last) { return false; }
+        if !last.is_empty() && !seg.ends_with(last) {
+            return false;
+        }
     }
     true
 }

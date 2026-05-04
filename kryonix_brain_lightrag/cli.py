@@ -331,22 +331,29 @@ async def cmd_search(args):
     top_k = getattr(args, "top", 5)
     
     # ── CAG Strategy Integration ──────────────────────────────────────────
-    from . import routing, cag
+    from . import cag
     query_str = " ".join(args.term) if isinstance(args.term, list) else args.term
-    cag_strategy = routing.suggest_strategy(query_str)
+    route_preview = cag.route(query_str, top_k=top_k)
+    cag_strategy = {
+        "strategy": route_preview.get("strategy", "hybrid"),
+        "confidence": route_preview.get("confidence", 0.2),
+        "confidence_label": route_preview.get("confidence_label", "Baixa"),
+        "reason": route_preview.get("reason", ""),
+    }
     
     # Force strategies if flags present
     if getattr(args, "cag_only", False):
-        cag_strategy = {"strategy": "CAG", "score": 1.0, "reason": "Forçado pelo usuário (--cag-only)"}
+        cag_strategy = {"strategy": "cag", "confidence": 1.0, "confidence_label": "Alta", "reason": "Forçado pelo usuário (--cag-only)"}
     elif getattr(args, "rag_only", False):
-        cag_strategy = {"strategy": "RAG", "score": 1.0, "reason": "Forçado pelo usuário (--rag-only)"}
+        cag_strategy = {"strategy": "rag", "confidence": 1.0, "confidence_label": "Alta", "reason": "Forçado pelo usuário (--rag-only)"}
 
     if verbose or explain:
-        color = "cyan" if cag_strategy['strategy'] == "CAG" else "magenta"
-        console.print(f"[dim][CAG] Rota sugerida: [bold {color}]{cag_strategy['strategy']}[/bold {color}] ({cag_strategy['reason']})[/dim]")
+        strat_name = str(cag_strategy["strategy"]).upper()
+        color = "cyan" if strat_name == "CAG" else "magenta" if strat_name == "HYBRID" else "yellow"
+        console.print(f"[dim][CAG] Rota sugerida: [bold {color}]{strat_name}[/bold {color}] ({cag_strategy['reason']})[/dim]")
 
     # ── Step 1: Attempt CAG if applicable ──────────────────────────────────
-    if cag_strategy['strategy'] == "CAG" and not getattr(args, "rag_only", False):
+    if cag_strategy['strategy'] == "cag" and not getattr(args, "rag_only", False):
         try:
             cag_res = cag.ask(query_str, top_k=top_k)
             if cag_res.get("status") != "no_context":
@@ -1035,9 +1042,9 @@ async def cmd_cag(args):
             if json_mode:
                 print(json.dumps(result, indent=2))
             else:
-                console.print(f"\n[bold cyan][/bold cyan][black on cyan]STATUS[/black on cyan][bold cyan][/bold cyan] [bold]CAG Pack Information[/bold]")
+                console.print(f"\n[bold cyan][/bold cyan][black on cyan]STATUS[/black on cyan][bold cyan][/bold cyan] [bold]CAG Pack Status[/bold]")
                 console.print(f"  [cyan]Profile:[/cyan]    [bold]{result.get('profile', 'n/a')}[/bold]")
-                console.print(f"  [cyan]Built at:[/cyan]   {result.get('built_at', 'n/a')}")
+                console.print(f"  [cyan]Built At:[/cyan]   {result.get('built_at', 'n/a')}")
                 console.print(f"  [cyan]Files:[/cyan]      {result.get('total_files', 0)}")
                 console.print(f"  [cyan]Size:[/cyan]       {result.get('total_bytes', 0) / 1024 / 1024:.1f} MB")
                 console.print(f"  [cyan]Tags:[/cyan]       {result.get('tag_count', 0)}")
@@ -1102,17 +1109,22 @@ async def cmd_cag(args):
                 return
 
             # Human-friendly output
-            console.print(f"\n[bold cyan][/bold cyan][black on cyan]ROUTING[/black on cyan][bold cyan][/bold cyan] [bold]CAG Decision Engine[/bold]")
+            console.print(f"\n[bold cyan][/bold cyan][black on cyan]ROUTING[/black on cyan][bold cyan][/bold cyan] [bold]CAG Routing Results[/bold]")
             console.print(f"  [bold]Query:[/bold] [italic]{query}[/italic]\n")
 
-            strategy = result.get("suggested_strategy", {})
-            if strategy:
-                strat_name = strategy.get('strategy', 'unknown').upper()
+            strategy_meta = {
+                "strategy": result.get("strategy") or result.get("suggested_strategy", {}).get("strategy", "unknown"),
+                "confidence": result.get("confidence", result.get("suggested_strategy", {}).get("confidence", result.get("suggested_strategy", {}).get("score", 0.0))),
+                "confidence_label": result.get("confidence_label", result.get("suggested_strategy", {}).get("confidence_label", "Baixa")),
+                "reason": result.get("reason", result.get("suggested_strategy", {}).get("reason", "n/a")),
+            }
+            if strategy_meta:
+                strat_name = str(strategy_meta.get('strategy', 'unknown')).upper()
                 color = "cyan" if strat_name == "CAG" else "magenta" if strat_name == "HYBRID" else "yellow"
-                
-                score = strategy.get("score", 0.0)
+
+                score = float(strategy_meta.get("confidence", 0.0))
                 conf_val = score * 100
-                conf_label = "Alta" if score > 0.7 else "Média" if score > 0.4 else "Baixa"
+                conf_label = strategy_meta.get("confidence_label", "Baixa")
                 conf_color = "green" if conf_label == "Alta" else "yellow" if conf_label == "Média" else "red"
                 
                 bar_len = 20
@@ -1121,13 +1133,14 @@ async def cmd_cag(args):
                 
                 console.print(f"  [bold]Strategy:[/bold]   [bold {color}]{strat_name}[/bold {color}]")
                 console.print(f"  [bold]Confidence:[/bold] [{conf_color}]{bar}[/{conf_color}] [bold]{conf_val:.0f}%[/bold] ({conf_label})")
-                console.print(f"  [bold]Reasoning:[/bold]  {strategy.get('reason', 'n/a')}\n")
+                console.print(f"  [bold]Reasoning:[/bold]  {strategy_meta.get('reason', 'n/a')}\n")
 
             matched = result.get("matched_files", [])
             if not matched:
                 console.print(f"  [bold yellow][/bold yellow][black on yellow]EMPTY[/black on yellow][bold yellow][/bold yellow] [yellow]No relevant files found for query.[/yellow]")
                 console.print("  [dim]Try building the CAG pack with: kryonix brain cag build[/dim]\n")
             else:
+                console.print(f"  [bold]Files found:[/bold] {len(matched)}\n")
                 all_tags = set()
                 for f in matched:
                     all_tags.update(f.get("tags", []))

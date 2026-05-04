@@ -273,6 +273,14 @@ def _build_manifest_python(profile: str, repo: Path, out: Path) -> dict:
     return manifest
 
 
+def _confidence_label(score: float) -> str:
+    if score >= 0.75:
+        return "Alta"
+    if score >= 0.45:
+        return "Média"
+    return "Baixa"
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def build(
@@ -325,21 +333,32 @@ def status(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
 
 def route(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 10) -> dict:
     """Route a query to the most relevant files in the CAG pack."""
-    from kryonix_brain_lightrag.routing import suggest_strategy
-    
     if RUST_BINARY is not None:
-        result = _run_rust(["route", query, "--dir", str(cag_dir), "--top-k", str(top_k), "--format", "json"])
-        # Inject Python-based strategy suggestion even when using Rust for routing
-        result["suggested_strategy"] = suggest_strategy(query)
-        return result
-        
+        return _run_rust(["route", query, "--dir", str(cag_dir), "--top-k", str(top_k), "--format", "json"])
+
     # Python fallback — delegate to routing.py
     from kryonix_brain_lightrag.routing import route_query_python
     manifest_path = cag_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
         raise FileNotFoundError(f"No manifest found at {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
-    return route_query_python(manifest, query, top_k)
+    fallback = route_query_python(manifest, query, top_k)
+    suggested = fallback.get("suggested_strategy", {})
+    score = float(suggested.get("score", suggested.get("confidence", 0.2)))
+    strategy = str(suggested.get("strategy", "hybrid")).lower()
+    return {
+        "query": fallback.get("query", query),
+        "profile": manifest.get("profile", "unknown"),
+        "strategy": strategy,
+        "confidence": score,
+        "confidence_label": _confidence_label(score),
+        "reason": suggested.get("reason", ""),
+        "matched_tags": fallback.get("matched_tags", []),
+        "matched_files": fallback.get("matched_files", []),
+        "total_tokens_est": fallback.get("total_tokens_est", 0),
+        "backend": fallback.get("backend", "python-fallback"),
+        "suggested_strategy": suggested,
+    }
 
 
 def clear_cache(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
@@ -440,8 +459,15 @@ def ask(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 5) -> dict:
     return {
         "answer": answer,
         "sources": [f["path"] for f in matched],
+        "matched_files": matched,
+        "matched_tags": routing_res.get("matched_tags", []),
         "status": "success",
-        "routing": routing_res.get("suggested_strategy")
+        "routing": {
+            "strategy": routing_res.get("strategy"),
+            "confidence": routing_res.get("confidence"),
+            "confidence_label": routing_res.get("confidence_label"),
+            "reason": routing_res.get("reason"),
+        },
     }
 
 
@@ -464,6 +490,8 @@ def scan_secrets(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
 
 def clear_cache(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
     """Clear the CAG cache directory."""
+    if RUST_BINARY is not None:
+        return _run_rust(["clear-cache", "--dir", str(cag_dir)])
     if cag_dir.exists():
         import shutil
         try:

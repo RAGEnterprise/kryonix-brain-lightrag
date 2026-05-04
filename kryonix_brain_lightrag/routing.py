@@ -78,7 +78,7 @@ def get_path_multiplier(path: str, query_lower: str) -> float:
     archive_keywords = ["antigo", "legacy", "archive", "histórico", "historico", "history", "vault"]
     is_archive_query = any(k in query_lower for k in archive_keywords)
 
-    # Tier 4: Disk/Install/ISO Penalty (0.01x)
+    # Tier 4: Disk/Install/ISO Penalty (0.1x)
     # Aggressive penalty for infrastructure/ISO files when not explicitly asked
     iso_keywords = ["iso", "live", "bootable", "usb", "flash", "instalação", "instalacao", "install"]
     is_iso_query = any(k in query_lower for k in iso_keywords)
@@ -89,13 +89,17 @@ def get_path_multiplier(path: str, query_lower: str) -> float:
         ("live-iso" in path_lower) or
         ("install" in path_lower) or
         ("hardware-configuration" in path_lower)) and not (is_disk_query or is_iso_query):
-        return 0.01
+        return 0.1
 
-    # Tier 4: Archive/Legacy Penalty (0.05x)
+    # Tier 4: Archive/Legacy Penalty (0.2x)
     if (("archive/" in path_lower) or 
         ("legacy/" in path_lower) or 
         ("antigo/" in path_lower)) and not is_archive_query:
-        return 0.05
+        return 0.2
+
+    # Tier 1: Canonical Docs (2.0x for specific matches)
+    if path_lower.endswith("agents.md") or path_lower.endswith("readme.md") or "docs/hosts/glacier.md" in path_lower:
+        return 2.0
 
     # Tier 1: Canonical Docs (4.0x for specific matches)
     if (("docs/hosts/glacier-switch.md" in path_lower or "docs/hosts/glacier-rebuild.md" in path_lower) and 
@@ -124,29 +128,64 @@ def get_path_multiplier(path: str, query_lower: str) -> float:
 def suggest_strategy(query: str) -> dict[str, Any]:
     """Suggest the best search strategy (cag, rag, hybrid) for a query."""
     query_lower = query.lower()
-    
+
     # RAG/Hybrid triggers: vault, deep knowledge, history, conversations
     rag_triggers = {
-        "vault": 0.8, "histórico": 0.7, "historico": 0.7, 
-        "nota antiga": 0.6, "conversa anterior": 0.8, 
-        "brain": 0.4, "lightrag": 0.4, "pensamento": 0.5, 
-        "log": 0.7, "incidente": 0.8, "decisão": 0.7, 
+        "vault": 0.8,
+        "histórico": 0.7,
+        "historico": 0.7,
+        "nota antiga": 0.6,
+        "conversa anterior": 0.8,
+        "brain": 0.4,
+        "lightrag": 0.4,
+        "pensamento": 0.5,
+        "log": 0.7,
+        "incidente": 0.8,
+        "decisão": 0.7,
         "grounding": 0.6, "conhecimento": 0.5,
-        "ontem": 0.6, "passado": 0.5, "conversamos": 0.7
+        "ontem": 0.6,
+        "passado": 0.5,
+        "conversamos": 0.7,
     }
-    
+
     # CAG triggers: repo structure, specific configs, nix files, current implementation
     cag_triggers = {
-        "cag": 1.0, "context": 0.9,
-        "como funciona": 1.0, "onde fica": 1.0, "configuração": 0.9, 
-        "configuracao": 0.9, "nix": 0.9, "flake": 1.0, "host": 1.0, 
-        "glacier": 1.0, "inspiron": 1.0, "código": 0.9, "codigo": 0.9, 
-        "implementação": 0.9, "implementacao": 0.9, "módulo": 0.9, 
-        "modulo": 0.9, "package": 0.9, "pacote": 0.9, "setup": 0.8,
-        "instalar": 0.7, "build": 0.8, "rebuild": 1.0, "como faço": 1.0,
-        "como faco": 1.0, "guia": 0.8, "tutorial": 0.7, "cli": 0.9,
-        "comando": 0.8, "docker": 0.4, "systemd": 0.9, "service": 0.8,
-        "serviço": 0.8, "run": 0.6, "executar": 0.6, "seguro": 0.5
+        "cag": 1.0,
+        "context": 0.9,
+        "como funciona": 1.0,
+        "onde fica": 1.0,
+        "configuração": 0.9,
+        "configuracao": 0.9,
+        "nix": 0.9,
+        "flake": 1.0,
+        "host": 1.0,
+        "glacier": 1.0,
+        "inspiron": 1.0,
+        "código": 0.9,
+        "codigo": 0.9,
+        "implementação": 0.9,
+        "implementacao": 0.9,
+        "módulo": 0.9,
+        "modulo": 0.9,
+        "package": 0.9,
+        "pacote": 0.9,
+        "setup": 0.8,
+        "instalar": 0.7,
+        "build": 0.8,
+        "rebuild": 1.0,
+        "como faço": 1.0,
+        "como faco": 1.0,
+        "guia": 0.8,
+        "tutorial": 0.7,
+        "cli": 0.9,
+        "comando": 0.8,
+        "docker": 0.4,
+        "systemd": 0.9,
+        "service": 0.8,
+        "serviço": 0.8,
+        "run": 0.6,
+        "executar": 0.6,
+        "seguro": 0.5,
     }
 
     rag_score = 0.0
@@ -169,23 +208,31 @@ def suggest_strategy(query: str) -> dict[str, Any]:
         cag_score = max(cag_score, 0.98)
 
     if cag_score > rag_score and cag_score > 0.3:
+        confidence = float(cag_score)
         return {
-            "strategy": "CAG",
-            "score": cag_score,
-            "reason": "Query focuses on repository structure, hosts, or code implementation."
+            "strategy": "cag",
+            "score": confidence,
+            "confidence": confidence,
+            "confidence_label": "Alta" if confidence > 0.7 else "Média" if confidence > 0.4 else "Baixa",
+            "reason": "Query focuses on repository structure, hosts, or code implementation.",
         }
-    elif rag_score > 0.3:
+    if rag_score > 0.3:
+        confidence = float(rag_score)
         return {
-            "strategy": "HYBRID",
-            "score": rag_score,
-            "reason": "Query mentions vault, history, or knowledge base concepts."
+            "strategy": "rag",
+            "score": confidence,
+            "confidence": confidence,
+            "confidence_label": "Alta" if confidence > 0.7 else "Média" if confidence > 0.4 else "Baixa",
+            "reason": "Query mentions vault, history, or knowledge base concepts.",
         }
     
     # Default to hybrid with low confidence
     return {
-        "strategy": "HYBRID",
+        "strategy": "hybrid",
         "score": 0.2,
-        "reason": "General query, hybrid provides broad coverage."
+        "confidence": 0.2,
+        "confidence_label": "Baixa",
+        "reason": "General query, hybrid provides broad coverage.",
     }
 
 
@@ -265,11 +312,16 @@ def route_query_python(manifest: dict, query: str, top_k: int = 10) -> dict:
             "snippet": snippet,
         })
 
+    suggested = suggest_strategy(query)
     return {
         "query": query,
+        "strategy": suggested.get("strategy", "hybrid"),
+        "confidence": suggested.get("confidence", suggested.get("score", 0.2)),
+        "confidence_label": suggested.get("confidence_label", "Baixa"),
+        "reason": suggested.get("reason", ""),
         "matched_tags": matched_tags,
         "matched_files": matched_files,
         "total_tokens_est": total_tokens,
         "backend": "python-fallback",
-        "suggested_strategy": suggest_strategy(query),
+        "suggested_strategy": suggested,
     }
