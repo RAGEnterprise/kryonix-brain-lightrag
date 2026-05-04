@@ -93,12 +93,12 @@ FORMATO:
 """).strip()
 
 # ── Profiles ─────────────────────────────────────────────────────
-# safe     → qwen2.5-coder:3b  — RTX 4060 8GB, first-run stable
+# safe     → qwen2.5-coder:7b  — local, stable enough for first-run
 # balanced → qwen2.5-coder:7b  — faster extraction, slightly heavier
 # query    → qwen2.5-coder:7b  — used for interactive queries after indexing
 PROFILES: dict[str, dict] = {
     "safe": {
-        "llm_model": "qwen2.5-coder:3b",
+        "llm_model": "qwen2.5-coder:7b",
         "llm_model_max_async": 1,
         "max_parallel_insert": 1,
         "embedding_batch_num": 1,
