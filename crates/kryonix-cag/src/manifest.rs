@@ -33,12 +33,14 @@ impl Profile {
                 "**/AGENTS.md".into(),
                 "**/README*".into(),
                 "docs/**".into(),
+                "docs/ai/**".into(),
                 "hosts/**".into(),
                 "modules/**".into(),
                 "profiles/**".into(),
                 "features/**".into(),
                 "packages/**/*.nix".into(),
                 "packages/**/*.md".into(),
+                ".ai/skills/brain/**".into(),
                 "flake.nix".into(),
                 "flake.lock".into(),
             ],
@@ -82,6 +84,21 @@ impl Profile {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::Profile;
+
+    #[test]
+    fn test_kryonix_core_includes_canonical_ai_docs() {
+        let profile = Profile::kryonix_core();
+        assert!(profile.include_patterns.iter().any(|p| p == "docs/ai/**"));
+        assert!(profile
+            .include_patterns
+            .iter()
+            .any(|p| p == ".ai/skills/brain/**"));
+    }
+}
+
 /// Metadata for a single file in the CAG pack
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -108,11 +125,7 @@ pub struct CagManifest {
 }
 
 impl CagManifest {
-    pub fn from_scanned(
-        profile: &Profile,
-        repo_root: &Path,
-        files: Vec<ScannedFile>,
-    ) -> Self {
+    pub fn from_scanned(profile: &Profile, repo_root: &Path, files: Vec<ScannedFile>) -> Self {
         let total_bytes: u64 = files.iter().map(|f| f.size_bytes).sum();
         let total_files = files.len();
 

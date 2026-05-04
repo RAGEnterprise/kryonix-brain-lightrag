@@ -49,29 +49,98 @@ fn keyword_tag_weights() -> HashMap<&'static str, Vec<(&'static str, f64)>> {
     HashMap::from([
         ("glacier", vec![("glacier", 2.5), ("host-config", 1.5)]),
         ("inspiron", vec![("inspiron", 2.5), ("host-config", 1.0)]),
-        ("brain", vec![("brain", 2.0), ("lightrag", 1.5), ("mcp", 0.5)]),
+        (
+            "brain",
+            vec![("brain", 2.0), ("lightrag", 1.5), ("mcp", 0.5)],
+        ),
         ("rag", vec![("lightrag", 2.0), ("brain", 1.0)]),
         ("vault", vec![("brain", 1.0), ("docs", 0.8)]),
-        ("bancos", vec![("local-sources", 2.5), ("docs", 1.0)]),
-        ("fontes", vec![("local-sources", 2.5), ("docs", 1.0)]),
-        ("locais", vec![("local-sources", 2.0), ("docs", 0.8)]),
-        ("local", vec![("local-sources", 1.5), ("docs", 0.5)]),
-        ("nixpkgs", vec![("local-sources", 1.5), ("nix", 1.0)]),
-        ("home-manager", vec![("local-sources", 1.5), ("nix", 1.0)]),
-        ("noogle", vec![("local-sources", 1.5), ("nix", 0.5)]),
+        (
+            "bancos",
+            vec![
+                ("local-sources", 4.0),
+                ("nixos-sources", 2.0),
+                ("docs", 1.0),
+            ],
+        ),
+        (
+            "fontes",
+            vec![
+                ("local-sources", 4.0),
+                ("nixos-sources", 2.0),
+                ("docs", 1.0),
+            ],
+        ),
+        (
+            "locais",
+            vec![
+                ("local-sources", 3.5),
+                ("nixos-sources", 1.5),
+                ("docs", 0.8),
+            ],
+        ),
+        ("local", vec![("local-sources", 2.5), ("docs", 0.5)]),
+        ("source", vec![("local-sources", 2.0), ("docs", 0.5)]),
+        (
+            "sources",
+            vec![
+                ("local-sources", 3.5),
+                ("nixos-sources", 2.0),
+                ("docs", 1.0),
+            ],
+        ),
+        (
+            "nixos",
+            vec![
+                ("local-sources", 3.0),
+                ("nixos-sources", 2.5),
+                ("host-config", 1.5),
+                ("nix", 1.0),
+            ],
+        ),
+        (
+            "nixpkgs",
+            vec![("local-sources", 2.5), ("nix", 1.0), ("docs", 0.8)],
+        ),
+        (
+            "home-manager",
+            vec![("local-sources", 2.5), ("nix", 1.0), ("docs", 0.8)],
+        ),
+        (
+            "noogle",
+            vec![("local-sources", 2.5), ("nix", 0.8), ("docs", 0.8)],
+        ),
         ("nvidia", vec![("gpu", 2.0), ("glacier", 1.0)]),
         ("cuda", vec![("gpu", 2.0), ("glacier", 1.0)]),
-        ("ollama", vec![("ollama", 2.0), ("glacier", 1.0), ("brain", 0.5)]),
+        (
+            "ollama",
+            vec![("ollama", 2.0), ("glacier", 1.0), ("brain", 0.5)],
+        ),
         ("tailscale", vec![("tailscale", 2.0), ("networking", 1.0)]),
         ("ssh", vec![("ssh", 2.0), ("networking", 0.5)]),
         ("nix", vec![("nix", 2.0), ("flake", 0.5)]),
-        ("nixos", vec![("nix", 2.0), ("host-config", 1.0)]),
         ("flake", vec![("flake", 2.0), ("nix", 1.0)]),
-        ("rebuild", vec![("nix", 1.5), ("host-config", 1.0), ("operations", 1.0)]),
-        ("switch", vec![("nix", 1.5), ("host-config", 1.0), ("operations", 1.0)]),
+        (
+            "rebuild",
+            vec![("nix", 1.5), ("host-config", 1.0), ("operations", 1.0)],
+        ),
+        (
+            "switch",
+            vec![("nix", 1.5), ("host-config", 1.0), ("operations", 1.0)],
+        ),
         ("cli", vec![("cli", 2.5), ("docs", 1.0)]),
         ("comandos", vec![("operations", 1.5), ("cli", 1.0)]),
         ("comando", vec![("operations", 1.5), ("cli", 1.0)]),
+        (
+            "kryonix",
+            vec![("cli", 2.5), ("operations", 1.5), ("docs", 1.0)],
+        ),
+        ("check", vec![("operations", 2.0), ("cli", 1.0)]),
+        ("home", vec![("operations", 1.5), ("cli", 1.0)]),
+        ("update", vec![("operations", 1.5), ("cli", 0.5)]),
+        ("boot", vec![("operations", 1.5), ("cli", 0.5)]),
+        ("test", vec![("operations", 1.5), ("cli", 0.5)]),
+        ("apply", vec![("operations", 1.0), ("cli", 0.5)]),
         ("disko", vec![("storage", 2.0)]),
         ("disco", vec![("storage", 2.0)]),
         ("disk", vec![("storage", 2.0)]),
@@ -82,8 +151,25 @@ fn keyword_tag_weights() -> HashMap<&'static str, Vec<(&'static str, f64)>> {
     ])
 }
 
+
 fn is_disk_query(query_lower: &str) -> bool {
-    has_any(query_lower, &["disco", "disk", "partição", "particao", "particionamento", "disko", "storage", "filesystem", "mount", "install", "instalação", "instalacao"])
+    has_any(
+        query_lower,
+        &[
+            "disco",
+            "disk",
+            "partição",
+            "particao",
+            "particionamento",
+            "disko",
+            "storage",
+            "filesystem",
+            "mount",
+            "install",
+            "instalação",
+            "instalacao",
+        ],
+    )
 }
 
 fn is_iso_query(query_lower: &str) -> bool {
@@ -91,7 +177,18 @@ fn is_iso_query(query_lower: &str) -> bool {
 }
 
 fn is_archive_query(query_lower: &str) -> bool {
-    has_any(query_lower, &["antigo", "legacy", "archive", "histórico", "historico", "history", "vault"])
+    has_any(
+        query_lower,
+        &[
+            "antigo",
+            "legacy",
+            "archive",
+            "histórico",
+            "historico",
+            "history",
+            "vault",
+        ],
+    )
 }
 
 fn is_rebuild_query(query_lower: &str) -> bool {
@@ -99,11 +196,51 @@ fn is_rebuild_query(query_lower: &str) -> bool {
 }
 
 fn is_local_sources_query(query_lower: &str) -> bool {
-    has_any(query_lower, &["bancos", "fontes", "locais", "local", "sources", "nixpkgs", "home-manager", "noogle"])
+    has_any(
+        query_lower,
+        &[
+            "bancos",
+            "fontes",
+            "locais",
+            "local",
+            "source",
+            "sources",
+            "nixos",
+            "nixpkgs",
+            "home-manager",
+            "noogle",
+            "nix-dev",
+            "onde estao",
+            "onde estão",
+            "onde fica",
+            "onde ficam",
+            "bancos locais",
+            "fontes locais",
+        ],
+    )
 }
 
 fn is_operations_query(query_lower: &str) -> bool {
-    has_any(query_lower, &["cli", "kryonix", "operacional", "comando", "comandos", "boot", "test", "check", "fmt", "doctor", "switch", "rebuild"])
+    has_any(
+        query_lower,
+        &[
+            "cli",
+            "kryonix",
+            "operacional",
+            "comando",
+            "comandos",
+            "boot",
+            "test",
+            "check",
+            "fmt",
+            "doctor",
+            "switch",
+            "rebuild",
+            "home",
+            "update",
+            "apply",
+        ],
+    )
 }
 
 fn get_path_multiplier(path: &str, query_lower: &str) -> f64 {
@@ -119,34 +256,75 @@ fn get_path_multiplier(path: &str, query_lower: &str) -> f64 {
         && (path_lower.contains("docs/ai/nixos-local-knowledge-sources.md")
             || path_lower.contains(".ai/skills/brain/nixos-local-sources.md"))
     {
-        return 8.0;
+        return 10.0;
+    }
+
+    if local_sources_query
+        && (path_lower.contains("docs/ai/") || path_lower.contains(".ai/skills/brain/"))
+    {
+        return 6.0;
+    }
+
+    if local_sources_query
+        && (path_lower.contains("hosts/glacier/default.nix")
+            || path_lower.contains("profiles/glacier-ai.nix")
+            || path_lower.contains("modules/nixos/services/brain.nix")
+            || path_lower.contains("hardware-configuration.nix"))
+    {
+        return 0.2;
     }
 
     if rebuild_query
         && (path_lower.contains("docs/hosts/glacier-rebuild.md")
             || path_lower.contains("docs/hosts/glacier-switch.md")
+            || path_lower.contains("docs/cli.md")
+            || path_lower.contains("docs/operations.md")
             || path_lower.contains(".ai/skills/commands/rebuild-nixos.md"))
     {
-        return 7.5;
-    }
-
-    if (disk_query || iso_query)
-        && (path_lower.contains("glacier-live-iso.md") || path_lower.contains("disks.nix") || path_lower.contains("disko") || path_lower.contains("hardware-configuration"))
-    {
-        return if path_lower.contains("glacier-live-iso.md") { 6.0 } else { 5.0 };
+        return 8.5;
     }
 
     if operations_query
-        && (path_lower.contains("docs/cli.md") || path_lower.contains("docs/operations.md") || path_lower.contains("packages/kryonix-cli.nix"))
+        && (path_lower.contains("docs/cli.md")
+            || path_lower.contains("docs/operations.md")
+            || path_lower.contains("docs/hosts/glacier-rebuild.md")
+            || path_lower.contains("docs/hosts/glacier-switch.md")
+            || path_lower.contains(".ai/skills/commands/rebuild-nixos.md")
+            || path_lower.contains("packages/kryonix-cli.nix"))
     {
-        return 6.0;
+        return 7.0;
+    }
+
+    if operations_query
+        && (path_lower.contains("hosts/glacier/default.nix")
+            || path_lower.contains("profiles/glacier-ai.nix")
+            || path_lower.contains("modules/nixos/services/brain.nix")
+            || path_lower.contains("hardware-configuration.nix"))
+    {
+        return 0.2;
+    }
+
+    if (disk_query || iso_query)
+        && (path_lower.contains("glacier-live-iso.md")
+            || path_lower.contains("disks.nix")
+            || path_lower.contains("disko")
+            || path_lower.contains("hardware-configuration"))
+    {
+        return if path_lower.contains("glacier-live-iso.md") {
+            6.0
+        } else {
+            5.0
+        };
     }
 
     if archive_query && path_lower.contains("archive/") {
         return 4.0;
     }
 
-    if path_lower.contains("docs/hosts/") || path_lower.contains("docs/ai/") || path_lower.contains(".ai/skills/") {
+    if path_lower.contains("docs/hosts/")
+        || path_lower.contains("docs/ai/")
+        || path_lower.contains(".ai/skills/")
+    {
         return 3.0;
     }
 
@@ -163,15 +341,42 @@ fn get_path_multiplier(path: &str, query_lower: &str) -> f64 {
 
 pub fn suggest_strategy(query: &str) -> StrategySuggestion {
     let query_lower = query.to_lowercase();
-    let rag_score = if has_any(&query_lower, &["vault", "brain", "lightrag", "histórico", "historico", "incidente", "decisão", "grounding"]) { 0.8 } else { 0.0 };
-    let cag_score = if has_any(&query_lower, &["nix", "flake", "glacier", "inspiron", "bancos", "fontes", "locais", "cli", "comando", "rebuild", "switch"]) { 0.9 } else { 0.0 };
+    let rag_score = if has_any(
+        &query_lower,
+        &[
+            "vault",
+            "brain",
+            "lightrag",
+            "histórico",
+            "historico",
+            "incidente",
+            "decisão",
+            "grounding",
+        ],
+    ) {
+        0.8
+    } else {
+        0.0
+    };
+    let cag_score = if has_any(
+        &query_lower,
+        &[
+            "nix", "flake", "glacier", "inspiron", "bancos", "fontes", "locais", "cli", "comando",
+            "rebuild", "switch", "kryonix", "check", "home", "update", "boot", "test",
+        ],
+    ) {
+        0.9
+    } else {
+        0.0
+    };
 
     if rag_score > 0.0 && cag_score > 0.0 {
         return StrategySuggestion {
             strategy: "hybrid".to_string(),
             confidence: 0.8,
             confidence_label: confidence_label(0.8),
-            reason: "Query touches both repository implementation and vault/knowledge concepts.".to_string(),
+            reason: "Query touches both repository implementation and vault/knowledge concepts."
+                .to_string(),
         };
     }
 
@@ -188,7 +393,8 @@ pub fn suggest_strategy(query: &str) -> StrategySuggestion {
         strategy: "cag".to_string(),
         confidence: if cag_score > 0.0 { 0.98 } else { 0.2 },
         confidence_label: confidence_label(if cag_score > 0.0 { 0.98 } else { 0.2 }),
-        reason: "Query is about repository structure, configuration, or active implementation.".to_string(),
+        reason: "Query is about repository structure, configuration, or active implementation."
+            .to_string(),
     }
 }
 
@@ -206,9 +412,16 @@ pub fn route_query(manifest: &CagManifest, query: &str, top_k: usize) -> Routing
         }
     }
 
-    let mut scored_tags: Vec<(String, f64)> = tag_scores.iter().map(|(tag, score)| (tag.clone(), *score)).collect();
+    let mut scored_tags: Vec<(String, f64)> = tag_scores
+        .iter()
+        .map(|(tag, score)| (tag.clone(), *score))
+        .collect();
     scored_tags.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let matched_tags: Vec<String> = scored_tags.into_iter().take(8).map(|(tag, _)| tag).collect();
+    let matched_tags: Vec<String> = scored_tags
+        .into_iter()
+        .take(8)
+        .map(|(tag, _)| tag)
+        .collect();
 
     let mut file_scores: Vec<(usize, f64)> = manifest
         .files
@@ -278,5 +491,101 @@ pub fn route_query(manifest: &CagManifest, query: &str, top_k: usize) -> Routing
         matched_tags,
         matched_files,
         total_tokens_est,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::route_query;
+    use crate::manifest::{CagManifest, FileEntry, Profile};
+    use chrono::Utc;
+    use std::collections::HashMap;
+
+    fn make_manifest(files: Vec<(&str, Vec<&str>)>) -> CagManifest {
+        let entries: Vec<FileEntry> = files
+            .iter()
+            .map(|(path, _)| FileEntry {
+                path: (*path).to_string(),
+                size_bytes: 128,
+                blake3: format!("hash-{}", path),
+                content: format!("content for {}", path),
+            })
+            .collect();
+
+        let mut tags: HashMap<String, Vec<String>> = HashMap::new();
+        for (path, file_tags) in files {
+            for tag in file_tags {
+                tags.entry(tag.to_string())
+                    .or_default()
+                    .push(path.to_string());
+            }
+        }
+
+        let total_bytes = entries.iter().map(|file| file.size_bytes).sum();
+
+        CagManifest {
+            version: 1,
+            profile: Profile::kryonix_core().name,
+            repo_root: "/etc/kryonix".into(),
+            built_at: Utc::now(),
+            total_files: entries.len(),
+            total_bytes,
+            content_hash: "test-hash".into(),
+            files: entries,
+            tags,
+        }
+    }
+
+    #[test]
+    fn test_route_local_sources_query_prefers_canonical_docs() {
+        let manifest = make_manifest(vec![
+            (
+                "docs/ai/nixos-local-knowledge-sources.md",
+                vec!["docs", "local-sources", "nixos-sources"],
+            ),
+            (
+                ".ai/skills/brain/nixos-local-sources.md",
+                vec!["docs", "local-sources", "nixos-sources"],
+            ),
+            (
+                "hosts/glacier/default.nix",
+                vec!["glacier", "host-config", "nix"],
+            ),
+        ]);
+
+        let result = route_query(&manifest, "Onde estão os bancos locais NixOS?", 3);
+        let paths: Vec<&str> = result
+            .matched_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+
+        assert!(paths.contains(&"docs/ai/nixos-local-knowledge-sources.md"));
+        assert!(paths.contains(&".ai/skills/brain/nixos-local-sources.md"));
+        assert!(!paths.contains(&"hosts/glacier/default.nix"));
+    }
+
+    #[test]
+    fn test_route_rebuild_query_prefers_cli_docs() {
+        let manifest = make_manifest(vec![
+            ("docs/hosts/glacier-rebuild.md", vec!["docs", "operations"]),
+            ("docs/hosts/glacier-switch.md", vec!["docs", "operations"]),
+            ("docs/CLI.md", vec!["docs", "cli", "operations"]),
+            (
+                "hosts/glacier/default.nix",
+                vec!["glacier", "host-config", "nix"],
+            ),
+        ]);
+
+        let result = route_query(&manifest, "Como faço rebuild seguro do Glacier?", 3);
+        let paths: Vec<&str> = result
+            .matched_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+
+        assert!(paths.contains(&"docs/hosts/glacier-rebuild.md"));
+        assert!(paths.contains(&"docs/CLI.md"));
+        assert!(!paths.contains(&"hosts/glacier/default.nix"));
     }
 }

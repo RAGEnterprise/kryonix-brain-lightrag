@@ -78,8 +78,9 @@ fn derive_tags(rel_path: &str) -> Vec<String> {
     if p.contains("bluetooth") {
         tags.push("bluetooth".into());
     }
-    if p.contains("nixos-local-knowledge-sources") || p.contains("nixos-local-sources") {
+    if p.contains("nixos-local") || p.contains("local-sources") || p.contains("knowledge-sources") {
         tags.push("local-sources".into());
+        tags.push("nixos-sources".into());
     }
     if p.contains("cli") || p.contains("command") || p.contains("commands") || p.contains("usage") {
         tags.push("cli".into());

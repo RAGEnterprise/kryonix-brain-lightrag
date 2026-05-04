@@ -22,6 +22,16 @@ _KEYWORD_TAG_WEIGHTS: dict[str, list[tuple[str, float]]] = {
     "obsidian":   [("brain", 1.0), ("docs", 0.5)],
     "nota":       [("docs", 1.5), ("brain", 0.5)],
     "note":       [("docs", 1.5), ("brain", 0.5)],
+    "bancos":     [("local-sources", 3.5), ("nixos-sources", 1.0), ("docs", 1.0)],
+    "fontes":     [("local-sources", 3.5), ("nixos-sources", 1.0), ("docs", 1.0)],
+    "locais":     [("local-sources", 3.0), ("nixos-sources", 1.0), ("docs", 0.8)],
+    "local":      [("local-sources", 2.0), ("docs", 0.5)],
+    "source":     [("local-sources", 1.5), ("docs", 0.5)],
+    "sources":    [("local-sources", 3.0), ("nixos-sources", 1.5), ("docs", 1.0)],
+    "nixos":      [("local-sources", 2.5), ("nixos-sources", 1.5), ("nix", 1.0)],
+    "nixpkgs":    [("local-sources", 2.5), ("nix", 1.0), ("docs", 0.8)],
+    "home-manager": [("local-sources", 2.5), ("nix", 1.0), ("docs", 0.8)],
+    "noogle":     [("local-sources", 2.5), ("nix", 0.8), ("docs", 0.8)],
     "nvidia":     [("gpu", 2.0), ("glacier", 1.0)],
     "gpu":        [("gpu", 2.0), ("glacier", 1.0)],
     "cuda":       [("gpu", 2.0), ("glacier", 1.0)],
@@ -40,6 +50,13 @@ _KEYWORD_TAG_WEIGHTS: dict[str, list[tuple[str, float]]] = {
     "module":     [("nixos-module", 2.0), ("nix", 1.0)],
     "rebuild":    [("nix", 1.5), ("host-config", 1.0)],
     "switch":     [("nix", 1.5), ("host-config", 1.0)],
+    "kryonix":    [("cli", 2.5), ("operations", 1.5), ("docs", 1.0)],
+    "check":      [("operations", 2.0), ("cli", 1.0)],
+    "home":       [("operations", 1.5), ("cli", 1.0)],
+    "update":     [("operations", 1.5), ("cli", 0.5)],
+    "boot":       [("operations", 1.5), ("cli", 0.5)],
+    "test":       [("operations", 1.5), ("cli", 0.5)],
+    "apply":      [("operations", 1.0), ("cli", 0.5)],
     "audio":      [("audio", 2.0)],
     "pipewire":   [("audio", 2.0)],
     "bluetooth":  [("bluetooth", 2.0), ("audio", 0.5)],
@@ -105,6 +122,49 @@ def get_path_multiplier(path: str, query_lower: str) -> float:
     if (("docs/hosts/glacier-switch.md" in path_lower or "docs/hosts/glacier-rebuild.md" in path_lower) and 
         ("rebuild" in query_lower or "switch" in query_lower)):
         return 5.0
+
+    if ("docs/ai/nixos-local-knowledge-sources.md" in path_lower or
+        ".ai/skills/brain/nixos-local-sources.md" in path_lower) and any(
+        term in query_lower for term in ["bancos", "fontes", "locais", "local", "source", "sources", "nixos"]
+    ):
+        return 10.0
+
+    if ("docs/ai/" in path_lower or ".ai/skills/brain/" in path_lower) and any(
+        term in query_lower for term in ["bancos", "fontes", "locais", "local", "source", "sources", "nixos"]
+    ):
+        return 6.0
+
+    if any(
+        marker in path_lower for marker in [
+            "hosts/glacier/default.nix",
+            "profiles/glacier-ai.nix",
+            "modules/nixos/services/brain.nix",
+            "hardware-configuration.nix",
+        ]
+    ) and any(term in query_lower for term in ["bancos", "fontes", "locais", "local", "source", "sources", "nixos"]):
+        return 0.2
+
+    if any(
+        marker in path_lower for marker in [
+            "docs/cli.md",
+            "docs/operations.md",
+            "docs/hosts/glacier-rebuild.md",
+            "docs/hosts/glacier-switch.md",
+            ".ai/skills/commands/rebuild-nixos.md",
+            "packages/kryonix-cli.nix",
+        ]
+    ) and any(term in query_lower for term in ["check", "rebuild", "switch", "home", "update", "boot", "test", "apply", "kryonix"]):
+        return 7.0
+
+    if any(
+        marker in path_lower for marker in [
+            "hosts/glacier/default.nix",
+            "profiles/glacier-ai.nix",
+            "modules/nixos/services/brain.nix",
+            "hardware-configuration.nix",
+        ]
+    ) and any(term in query_lower for term in ["check", "rebuild", "switch", "home", "update", "boot", "test", "apply", "kryonix"]):
+        return 0.2
 
     # Tier 1: General Canonical Docs (3.0x)
     if ("docs/hosts/" in path_lower or 
@@ -179,6 +239,12 @@ def suggest_strategy(query: str) -> dict[str, Any]:
         "tutorial": 0.7,
         "cli": 0.9,
         "comando": 0.8,
+        "kryonix": 1.0,
+        "check": 0.9,
+        "home": 0.8,
+        "update": 0.7,
+        "boot": 0.7,
+        "test": 0.8,
         "docker": 0.4,
         "systemd": 0.9,
         "service": 0.8,

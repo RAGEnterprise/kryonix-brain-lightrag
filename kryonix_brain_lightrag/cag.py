@@ -143,6 +143,11 @@ _KEYWORD_TAGS: dict[str, list[str]] = {
     "btrfs": ["storage"],
     "vault": ["brain", "docs"],
     "obsidian": ["brain", "docs"],
+    "bancos": ["local-sources", "nixos-sources"],
+    "fontes": ["local-sources", "nixos-sources"],
+    "locais": ["local-sources"],
+    "local": ["local-sources"],
+    "sources": ["local-sources", "nixos-sources"],
 }
 
 
@@ -195,6 +200,8 @@ def _derive_tags(path: str) -> list[str]:
         tags.add("flake")
     if "agents" in p:
         tags.add("agent")
+    if "nixos-local" in p or "local-sources" in p:
+        tags |= {"local-sources", "nixos-sources"}
     return sorted(tags)
 
 
@@ -445,7 +452,10 @@ def ask(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 5) -> dict:
         "Você é o Kryonix CAG (Context-Augmented Generation). "
         "Sua tarefa é responder perguntas sobre o repositório Kryonix usando APENAS o contexto fornecido. "
         "Se o contexto não contiver a resposta, diga que não sabe. "
-        "Responda em Português do Brasil, de forma técnica e direta."
+        "Responda em Português do Brasil, de forma técnica e direta.\n\n"
+        "REGRAS OPERACIONAIS:\n"
+        "1. SEMPRE sugira comandos da CLI 'kryonix' para operações (ex: 'kryonix check', 'kryonix build', 'kryonix test', 'kryonix brain ...').\n"
+        "2. EVITE sugerir comandos crus como 'nix flake check' ou 'nh os build' a menos que o usuário peça especificamente ou o contexto indique que é um passo de desenvolvimento de baixo nível."
     )
     
     prompt = (
