@@ -37,17 +37,117 @@ from rich.markdown import Markdown
 from rich.table import Table
 
 from . import config
-from . import rag as rag_mod
-from .index import (
-    cmd_index, cmd_vault_scan, cmd_repair_vdb, cmd_repair_graph,
-    cmd_ingest_list, cmd_ingest_approve, cmd_ingest_reject, 
-    cmd_vault_curate, cmd_vault_sync_docs
-)
-from .graph_utils import generate_mocs, export_obsidian, heal_graph, validate_graphml
+
+# ── Lazy imports ──────────────────────────────────────────────────────────────
+# rag, index, graph_utils depend on lightrag → numpy → libstdc++.
+# They are NOT imported at module level so that lightweight subcommands
+# like `rag cag` work even when the C-extension environment is broken.
+_rag_mod = None
+_index_fns = None
+_graph_fns = None
+
+
+def _load_rag_deps():
+    """Import heavyweight deps on first use (not on module load)."""
+    global _rag_mod, _index_fns, _graph_fns
+    if _rag_mod is not None:
+        return
+    from . import rag as _r
+    _rag_mod = _r
+    from .index import (
+        cmd_index, cmd_vault_scan, cmd_repair_vdb, cmd_repair_graph,
+        cmd_ingest_list, cmd_ingest_approve, cmd_ingest_reject,
+        cmd_vault_curate, cmd_vault_sync_docs,
+    )
+    _index_fns = dict(
+        cmd_index=cmd_index,
+        cmd_vault_scan=cmd_vault_scan,
+        cmd_repair_vdb=cmd_repair_vdb,
+        cmd_repair_graph=cmd_repair_graph,
+        cmd_ingest_list=cmd_ingest_list,
+        cmd_ingest_approve=cmd_ingest_approve,
+        cmd_ingest_reject=cmd_ingest_reject,
+        cmd_vault_curate=cmd_vault_curate,
+        cmd_vault_sync_docs=cmd_vault_sync_docs,
+    )
+    from .graph_utils import generate_mocs, export_obsidian, heal_graph, validate_graphml
+    _graph_fns = dict(
+        generate_mocs=generate_mocs,
+        export_obsidian=export_obsidian,
+        heal_graph=heal_graph,
+        validate_graphml=validate_graphml,
+    )
+
 
 import time
 
 console = Console()
+
+
+# ── Proxy accessors for heavy deps ────────────────────────────────────────────
+# These let existing call sites use `rag_mod.query(...)`, `cmd_index(...)`,
+# `generate_mocs(...)` etc. without importing them at module level.
+
+class _RagModProxy:
+    """Forwards attribute access to the lazily-loaded rag module."""
+    def __getattr__(self, name):
+        _load_rag_deps()
+        return getattr(_rag_mod, name)
+
+rag_mod = _RagModProxy()
+
+
+def is_rag_empty() -> bool:
+    """Check if RAG storage is empty without importing heavy deps."""
+    try:
+        # Check graphml file
+        graph_path = config.WORKING_DIR / "graph_chunk_entity_relation.graphml"
+        if not graph_path.exists() or graph_path.stat().st_size < 100:
+            return True
+            
+        # Check if vdb files exist and have data (minimal check)
+        vdb_entities = config.WORKING_DIR / "vdb_entities.json"
+        if not vdb_entities.exists() or vdb_entities.stat().st_size < 50:
+            return True
+            
+        return False
+    except Exception:
+        return True
+
+
+def cmd_vault_scan(*a, **kw):
+    _load_rag_deps(); return _index_fns["cmd_vault_scan"](*a, **kw)
+
+async def cmd_vault_curate(*a, **kw):
+    _load_rag_deps(); return await _index_fns["cmd_vault_curate"](*a, **kw)
+
+async def cmd_vault_sync_docs(*a, **kw):
+    _load_rag_deps(); return await _index_fns["cmd_vault_sync_docs"](*a, **kw)
+
+async def cmd_repair_graph(*a, **kw):
+    _load_rag_deps(); return await _index_fns["cmd_repair_graph"](*a, **kw)
+
+async def cmd_ingest_list(*a, **kw):
+    _load_rag_deps(); return await _index_fns["cmd_ingest_list"](*a, **kw)
+
+async def cmd_ingest_approve(*a, **kw):
+    _load_rag_deps(); return await _index_fns["cmd_ingest_approve"](*a, **kw)
+
+async def cmd_ingest_reject(*a, **kw):
+    _load_rag_deps(); return await _index_fns["cmd_ingest_reject"](*a, **kw)
+
+async def generate_mocs(*a, **kw):
+    _load_rag_deps(); return await _graph_fns["generate_mocs"](*a, **kw)
+
+def export_obsidian(*a, **kw):
+    _load_rag_deps(); return _graph_fns["export_obsidian"](*a, **kw)
+
+async def heal_graph(*a, **kw):
+    _load_rag_deps(); return await _graph_fns["heal_graph"](*a, **kw)
+
+def validate_graphml(*a, **kw):
+    _load_rag_deps(); return _graph_fns["validate_graphml"](*a, **kw)
+
 
 async def cmd_vault(args):
     """Vault operations."""
@@ -227,10 +327,81 @@ async def cmd_search(args):
     mode = getattr(args, "mode", "hybrid")
     lang = getattr(args, "lang", None)
     verbose = getattr(args, "verbose", False)
+    explain = getattr(args, "explain", False)
+    top_k = getattr(args, "top", 5)
     
+    # ── CAG Strategy Integration ──────────────────────────────────────────
+    from . import routing, cag
+    query_str = " ".join(args.term) if isinstance(args.term, list) else args.term
+    cag_strategy = routing.suggest_strategy(query_str)
+    
+    # Force strategies if flags present
+    if getattr(args, "cag_only", False):
+        cag_strategy = {"strategy": "CAG", "score": 1.0, "reason": "Forçado pelo usuário (--cag-only)"}
+    elif getattr(args, "rag_only", False):
+        cag_strategy = {"strategy": "RAG", "score": 1.0, "reason": "Forçado pelo usuário (--rag-only)"}
+
+    if verbose or explain:
+        color = "cyan" if cag_strategy['strategy'] == "CAG" else "magenta"
+        console.print(f"[dim][CAG] Rota sugerida: [bold {color}]{cag_strategy['strategy']}[/bold {color}] ({cag_strategy['reason']})[/dim]")
+
+    # ── Step 1: Attempt CAG if applicable ──────────────────────────────────
+    if cag_strategy['strategy'] == "CAG" and not getattr(args, "rag_only", False):
+        try:
+            cag_res = cag.ask(query_str, top_k=top_k)
+            if cag_res.get("status") != "no_context":
+                if verbose or explain:
+                    console.print(f"[green][OK][/green] Usando resposta técnica via CAG.")
+                
+                if getattr(args, "json", False):
+                    print(json.dumps({
+                        "answer": cag_res["answer"],
+                        "status": "success",
+                        "sources": [{"path": s, "mode": "cag"} for s in cag_res.get("sources", [])],
+                        "grounding": {"cag": True},
+                        "strategy": "CAG"
+                    }))
+                else:
+                    from rich.panel import Panel
+                    console.print(f"\n[bold green][/bold green][black on green]CAG RESPONSE[/black on green][bold green][/bold green] [dim]Grounding: Repository Context[/dim]")
+                    console.print(Panel(Markdown(cag_res["answer"]), border_style="green", title="[bold green]Kryonix CAG[/bold green]", title_align="left"))
+                    
+                    sources = cag_res.get("sources", [])
+                    if sources:
+                        console.print("\n[bold cyan]Fontes Técnicas (Repositório):[/bold cyan]")
+                        for i, src in enumerate(sources[:top_k]):
+                            console.print(f"  {i+1}. [bold white]{src}[/bold white]")
+                    console.print("\n[dim]Nota: Resposta baseada diretamente nos arquivos do repositório.[/dim]")
+                return cag_res
+        except Exception as e:
+            if verbose:
+                console.print(f"[yellow][AVISO][/yellow] Falha no CAG: {e}. Tentando fallback...")
+
+    # ── Step 2: Check RAG Health ───────────────────────────────────────────
+    if is_rag_empty() and not getattr(args, "rag_only", False):
+        msg = "RAG storage está vazio ou inativo. Use `kryonix brain sync` para indexar o vault."
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "error", "answer": msg}))
+        else:
+            console.print(f"[yellow][AVISO][/yellow] {msg}")
+            console.print("[dim]Dica: O CAG não encontrou contexto técnico suficiente e o RAG está vazio.[/dim]")
+        return {"status": "error", "answer": msg}
+
+    # ── Step 3: Execute RAG Query ──────────────────────────────────────────
+    # Context Guard for Glacier / Kryonix entities
+    query_to_rag = query_str
+    if "glacier" in (query_lower := query_str.lower()):
+        # Stronger technical grounding for Glacier
+        query_to_rag += " (Note: Glacier is a NixOS server host in the Kryonix project. Focus on nix modules, services, and repo structure. Ignore climate/nature.)"
+    elif "brain" in query_lower:
+        query_to_rag += " (Note: Brain refers to the Kryonix RAG/CAG system, not human biology.)"
+    elif "inspiron" in query_lower:
+        query_to_rag += " (Note: Inspiron is a NixOS workstation host in the Kryonix project.)"
+
     if verbose:
-        ctx = await rag_mod.get_query_context(args.term, mode=mode)
-        console.print(f"\n[bold blue]Diagnóstico de Recuperação:[/bold blue]")
+        # This will trigger dependency loading
+        ctx = await rag_mod.get_query_context(query_to_rag, mode=mode)
+        console.print(f"\n[bold blue]Diagnóstico de Recuperação RAG:[/bold blue]")
         t = Table(show_header=True, header_style="bold magenta")
         t.add_column("Categoria", style="cyan")
         t.add_column("Contagem", style="green")
@@ -244,19 +415,18 @@ async def cmd_search(args):
         console.print()
 
     res = await rag_mod.query(
-        " ".join(args.term), 
+        query_to_rag, 
         mode=mode, 
         lang=lang, 
         verbose=verbose,
-        explain=getattr(args, "explain", False)
+        explain=explain
     )
     
-    # Handle dict vs string return (backwards compatibility or new format)
+    # Handle output
     if isinstance(res, dict):
         answer = res.get("answer", "")
         status = res.get("status", "success")
         sources = res.get("sources", [])
-        grounding = res.get("grounding", {})
         
         if status == "error":
             console.print(f"[red][ERRO][/red] {answer}")
@@ -266,22 +436,14 @@ async def cmd_search(args):
             print(json.dumps(res))
         else:
             console.print(Markdown(answer))
-            
             if sources:
                 console.print("\n[bold]Fontes usadas:[/bold]")
-                for i, src in enumerate(sources[:5]): # Show top 5
+                for i, src in enumerate(sources[:top_k]):
                     title = src.get('file') or src.get('title') or src.get('path') or "fonte desconhecida"
                     score = src.get('score', 'n/a')
-                    chunk = src.get('chunk_id') or src.get('chunk') or "unknown"
-                    mode = src.get('mode') or src.get('retrieval_mode') or "hybrid"
-                    console.print(f"  {i+1}. {title} | chunk: {chunk} | score: {score} | modo: {mode}")
-                if len(sources) > 5:
-                    console.print(f"  ... e mais {len(sources)-5} chunks.")
-            
-            if verbose and grounding:
-                console.print(f"\n[dim]Grounding: {grounding.get('entities')} ents, {grounding.get('relations')} rels, {grounding.get('chunks')} chunks[/dim]")
+                    mode_used = src.get('mode') or mode
+                    console.print(f"  {i+1}. {title} | score: {score} | modo: {mode_used}")
     else:
-        # Fallback for old string return
         if getattr(args, "json", False):
             print(json.dumps({"mode": mode, "answer": res}))
         else:
@@ -838,59 +1000,214 @@ async def cmd_cag(args):
         return
 
     from pathlib import Path
+    from rich.table import Table
 
     cag_sub = getattr(args, "cag_sub", None)
-
+    json_mode = getattr(args, "json", False)
     default_dir = Path(os.environ.get("LIGHTRAG_CAG_DIR", "/tmp/kryonix-cag"))
 
     if cag_sub == "build":
         repo = Path(getattr(args, "repo", "/etc/kryonix"))
-        out = Path(getattr(args, "out", None) or default_dir)
+        cag_dir = Path(getattr(args, "out", None) or default_dir)
         profile = getattr(args, "profile", "kryonix-core")
         try:
-            result = cag_mod.build(profile=profile, repo=repo, out=out)
-            console.print(f"[green][OK][/green] CAG pack built: {out}")
-            print(json.dumps(result, indent=2))
+            result = cag_mod.build(profile=profile, repo=repo, out=cag_dir)
+            if json_mode:
+                print(json.dumps(result, indent=2))
+            else:
+                console.print(f"\n[bold green][/bold green][black on green]SUCCESS[/black on green][bold green][/bold green] [bold]CAG Build Complete![/bold]")
+                console.print(f"  [cyan]Profile:[/cyan]    [bold]{result.get('profile', 'n/a')}[/bold]")
+                console.print(f"  [cyan]Files:[/cyan]      [bold]{result.get('total_files', 0)}[/bold]")
+                console.print(f"  [cyan]Size:[/cyan]       [bold]{result.get('total_bytes', 0) / 1024 / 1024:.1f} MB[/bold]")
+                console.print(f"  [cyan]Hash:[/cyan]       [dim]{result.get('content_hash', 'n/a')}[/dim]")
+                console.print(f"  [cyan]Backend:[/cyan]    [dim]{result.get('backend', 'unknown')}[/dim]")
+                console.print(f"  [cyan]Output:[/cyan]     [dim]{cag_dir}[/dim]\n")
         except Exception as e:
-            console.print(f"[red][FAIL][/red] cag build error: {e}")
+            if json_mode:
+                print(json.dumps({"status": "error", "message": str(e)}))
+            else:
+                console.print(f"[bold red][FAIL][/bold red] CAG build error: {e}")
 
     elif cag_sub == "status":
         cag_dir = Path(getattr(args, "dir", None) or default_dir)
         try:
             result = cag_mod.status(cag_dir=cag_dir)
-            print(json.dumps(result, indent=2))
+            if json_mode:
+                print(json.dumps(result, indent=2))
+            else:
+                console.print(f"\n[bold cyan][/bold cyan][black on cyan]STATUS[/black on cyan][bold cyan][/bold cyan] [bold]CAG Pack Information[/bold]")
+                console.print(f"  [cyan]Profile:[/cyan]    [bold]{result.get('profile', 'n/a')}[/bold]")
+                console.print(f"  [cyan]Built at:[/cyan]   {result.get('built_at', 'n/a')}")
+                console.print(f"  [cyan]Files:[/cyan]      {result.get('total_files', 0)}")
+                console.print(f"  [cyan]Size:[/cyan]       {result.get('total_bytes', 0) / 1024 / 1024:.1f} MB")
+                console.print(f"  [cyan]Tags:[/cyan]       {result.get('tag_count', 0)}")
+                console.print(f"  [cyan]Hash:[/cyan]       [dim]{result.get('hash', 'n/a')[:16]}[/dim]")
+                console.print(f"  [cyan]Path:[/cyan]       [dim]{cag_dir}[/dim]\n")
         except Exception as e:
-            console.print(f"[red][FAIL][/red] cag status error: {e}")
+            if json_mode:
+                print(json.dumps({"status": "error", "message": str(e)}))
+            else:
+                console.print(f"[bold yellow][WARN][/bold yellow] CAG status error: {e}")
+                console.print("[dim]Use 'kryonix brain cag build' to create a new pack.[/dim]\n")
 
     elif cag_sub in ("route", "ask"):
         query_parts = getattr(args, "query", [])
         query = " ".join(query_parts) if isinstance(query_parts, list) else query_parts
         cag_dir = Path(getattr(args, "dir", None) or default_dir)
-        top_k = getattr(args, "top_k", 10)
+        top_k = getattr(args, "top", 5)
+        verbose = getattr(args, "verbose", False)
+
+        if not query:
+            if json_mode:
+                print(json.dumps({"status": "error", "message": "Query cannot be empty"}))
+            else:
+                console.print(f"[yellow][WARN][/yellow] Query cannot be empty.")
+            return
+
         try:
+            if cag_sub == "ask":
+                # Full CAG with LLM response
+                result = cag_mod.ask(query=query, cag_dir=cag_dir, top_k=top_k)
+                if json_mode:
+                    print(json.dumps(result, indent=2))
+                    return
+                
+                # Human-friendly ASK output
+                console.print(f"\n[bold green][/bold green][black on green]CAG ASK[/black on green][bold green][/bold green] [bold]Technical Repository Answer[/bold]")
+                console.print(f"  [bold]Query:[/bold] [italic]{query}[/italic]\n")
+                
+                answer = result.get("answer", "")
+                if result.get("status") == "no_context":
+                    console.print(f"  [yellow]{answer}[/yellow]")
+                else:
+                    # Premium output for ASK
+                    from rich.panel import Panel
+                    console.print(Panel(Markdown(answer), border_style="green", title="[bold green]Resposta CAG[/bold green]", title_align="left"))
+                    
+                    sources = result.get("sources", [])
+                    if sources:
+                        console.print("\n[bold cyan]Grounding Sources:[/bold cyan]")
+                        for i, src in enumerate(sources, 1):
+                            console.print(f"  {i}. [bold white]{src}[/bold white]")
+                
+                if not verbose:
+                    console.print("\n[dim]Tip: Use [bold]kryonix brain cag route[/bold] for detailed routing scores.[/dim]")
+                return
+
+            # ROUTE logic
             result = cag_mod.route(query=query, cag_dir=cag_dir, top_k=top_k)
-            # Print matched files to stdout
-            print(json.dumps(result, indent=2))
-            if result.get("matched_files"):
-                console.print(f"\n[bold]Top {len(result['matched_files'])} files for query:[/bold] [cyan]{query}[/cyan]")
-                for i, f in enumerate(result["matched_files"][:10], 1):
-                    console.print(f"  [dim]{i}.[/dim] [green]{f['path']}[/green] (score={f.get('score', '?')})")
+            
+            if json_mode:
+                print(json.dumps(result, indent=2))
+                return
+
+            # Human-friendly output
+            console.print(f"\n[bold cyan][/bold cyan][black on cyan]ROUTING[/black on cyan][bold cyan][/bold cyan] [bold]CAG Decision Engine[/bold]")
+            console.print(f"  [bold]Query:[/bold] [italic]{query}[/italic]\n")
+
+            strategy = result.get("suggested_strategy", {})
+            if strategy:
+                strat_name = strategy.get('strategy', 'unknown').upper()
+                color = "cyan" if strat_name == "CAG" else "magenta" if strat_name == "HYBRID" else "yellow"
+                
+                score = strategy.get("score", 0.0)
+                conf_val = score * 100
+                conf_label = "Alta" if score > 0.7 else "Média" if score > 0.4 else "Baixa"
+                conf_color = "green" if conf_label == "Alta" else "yellow" if conf_label == "Média" else "red"
+                
+                bar_len = 20
+                filled = int(bar_len * score)
+                bar = "█" * filled + "░" * (bar_len - filled)
+                
+                console.print(f"  [bold]Strategy:[/bold]   [bold {color}]{strat_name}[/bold {color}]")
+                console.print(f"  [bold]Confidence:[/bold] [{conf_color}]{bar}[/{conf_color}] [bold]{conf_val:.0f}%[/bold] ({conf_label})")
+                console.print(f"  [bold]Reasoning:[/bold]  {strategy.get('reason', 'n/a')}\n")
+
+            matched = result.get("matched_files", [])
+            if not matched:
+                console.print(f"  [bold yellow][/bold yellow][black on yellow]EMPTY[/black on yellow][bold yellow][/bold yellow] [yellow]No relevant files found for query.[/yellow]")
+                console.print("  [dim]Try building the CAG pack with: kryonix brain cag build[/dim]\n")
+            else:
+                all_tags = set()
+                for f in matched:
+                    all_tags.update(f.get("tags", []))
+                if all_tags:
+                    tags_sorted = sorted(list(all_tags))
+                    tags_fmt = ", ".join(f"[bold blue]{t}[/bold blue]" for t in tags_sorted[:8])
+                    if len(tags_sorted) > 8:
+                        tags_fmt += " ..."
+                    console.print(f"  [bold]Semantic context:[/bold] {tags_fmt}\n")
+
+                table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 1))
+                table.add_column("#", style="dim", width=2)
+                table.add_column("Score", justify="right", style="green", width=6)
+                table.add_column("Source Path", style="bold white")
+                table.add_column("Tags", style="dim")
+
+                for i, f in enumerate(matched[:top_k], 1):
+                    tags_str = ", ".join(f.get("tags", [])[:2])
+                    if len(f.get("tags", [])) > 2:
+                        tags_str += "..."
+                    table.add_row(str(i), f"{f.get('score', 0):.2f}", f['path'], tags_str)
+
+                console.print(table)
+
+            if not verbose:
+                console.print("\n[dim]Tip: Use [bold]--verbose[/bold] to see snippets or [bold]--json[/bold] for raw data.[/dim]")
+
+            if verbose and matched:
+                console.print("\n[bold cyan]Context Snippets:[/bold cyan]")
+                for i, f in enumerate(matched, 1):
+                    if f.get("snippet"):
+                        console.print(f"\n[bold white]── {i}. {f['path']} ──[/bold white]")
+                        snippet = f['snippet'].strip()
+                        # Indent and clean snippet
+                        indented = "\n".join("  " + line for line in snippet.splitlines()[:10])
+                        if snippet.count('\n') > 10:
+                            indented += "\n  ..."
+                        console.print(f"[italic]{indented}[/italic]")
+
+        except FileNotFoundError:
+            if json_mode:
+                print(json.dumps({"status": "error", "message": "CAG pack not found"}))
+            else:
+                console.print(f"[red][FAIL][/red] CAG pack not found at [bold]{cag_dir}[/bold]")
+                console.print("[dim]Please run: [bold]kryonix brain cag build[/bold] first.[/dim]")
         except Exception as e:
-            console.print(f"[red][FAIL][/red] cag route error: {e}")
+            if json_mode:
+                print(json.dumps({"status": "error", "message": str(e)}))
+            else:
+                console.print(f"[red][FAIL][/red] cag route error: {e}")
 
     elif cag_sub == "clear-cache":
         cag_dir = Path(getattr(args, "dir", None) or default_dir)
         try:
             result = cag_mod.clear_cache(cag_dir=cag_dir)
-            print(json.dumps(result, indent=2))
+            if json_mode:
+                print(json.dumps(result, indent=2))
+            else:
+                if result.get("status") == "cleared":
+                    console.print(f"[green][OK][/green] CAG cache cleared: [dim]{cag_dir}[/dim]")
+                else:
+                    console.print(f"[dim]CAG directory not found: {cag_dir}[/dim]")
         except Exception as e:
-            console.print(f"[red][FAIL][/red] cag clear-cache error: {e}")
+            if json_mode:
+                print(json.dumps({"status": "error", "message": str(e)}))
+            else:
+                console.print(f"[red][FAIL][/red] cag clear-cache error: {e}")
 
     else:
         # Show backend info when no subcommand
         info = cag_mod.backend_info()
-        print(json.dumps(info, indent=2))
-        console.print("[dim]Usage: rag cag [build|status|route|ask|clear-cache][/dim]")
+        if json_mode:
+            print(json.dumps(info, indent=2))
+        else:
+            console.print(f"[bold cyan]Kryonix CAG Engine[/bold cyan]")
+            console.print(f"  [dim]- Backend: {info.get('backend')}[/dim]")
+            if info.get("rust_binary"):
+                console.print(f"  [dim]- Binary: {info.get('rust_binary')}[/dim]")
+            console.print("\n[dim]Usage: kryonix brain cag [build|status|route|ask|clear-cache][/dim]")
+
 
 
 async def cmd_ollama_check(args):
@@ -1094,6 +1411,10 @@ def main():
         sp.add_argument("--lang", default="pt-BR", help="Response language (default: pt-BR)")
         sp.add_argument("--verbose", action="store_true", help="Show retrieval diagnostics")
         sp.add_argument("--explain", action="store_true", help="Show grounding sources and confidence")
+        sp.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+        sp.add_argument("--cag-only", action="store_true", help="Force technical pack search (fast)")
+        sp.add_argument("--rag-only", action="store_true", help="Force vault/history search (slow)")
+        sp.add_argument("--top", type=int, default=5, help="Max sources to display")
         sp.set_defaults(func=cmd_search, mode=mode)
 
     # cache
@@ -1230,32 +1551,40 @@ def main():
 
     # ── CAG — Context-Augmented Generation ──────────────────────────────────
     sp_cag = sub.add_parser("cag", help="CAG pack builder and router (Rust-backed)")
+    sp_cag.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     cag_sub = sp_cag.add_subparsers(dest="cag_sub", help="cag subcommand")
 
     sp_cag_build = cag_sub.add_parser("build", help="Build a CAG context pack")
     sp_cag_build.add_argument("--profile", default="kryonix-core", help="Profile: kryonix-core (default) or kryonix-vault")
     sp_cag_build.add_argument("--repo", default="/etc/kryonix", help="Repository root")
     sp_cag_build.add_argument("--out", default=None, help="Output directory (defaults to LIGHTRAG_CAG_DIR or /tmp/kryonix-cag)")
+    sp_cag_build.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     sp_cag_build.set_defaults(func=cmd_cag)
 
     sp_cag_status = cag_sub.add_parser("status", help="Show status of existing CAG pack")
     sp_cag_status.add_argument("--dir", default=None, help="CAG directory")
+    sp_cag_status.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     sp_cag_status.set_defaults(func=cmd_cag)
 
     sp_cag_route = cag_sub.add_parser("route", help="Route query to relevant files")
     sp_cag_route.add_argument("query", nargs="+", help="Query string")
     sp_cag_route.add_argument("--dir", default=None, help="CAG directory")
-    sp_cag_route.add_argument("--top-k", type=int, default=10)
+    sp_cag_route.add_argument("--top", type=int, default=5, help="Max files to show")
+    sp_cag_route.add_argument("--verbose", action="store_true", help="Show file snippets")
+    sp_cag_route.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     sp_cag_route.set_defaults(func=cmd_cag)
 
     sp_cag_ask = cag_sub.add_parser("ask", help="Alias for route")
     sp_cag_ask.add_argument("query", nargs="+", help="Query string")
     sp_cag_ask.add_argument("--dir", default=None, help="CAG directory")
-    sp_cag_ask.add_argument("--top-k", type=int, default=10)
+    sp_cag_ask.add_argument("--top", type=int, default=5, help="Max files to show")
+    sp_cag_ask.add_argument("--verbose", action="store_true", help="Show file snippets")
+    sp_cag_ask.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     sp_cag_ask.set_defaults(func=cmd_cag)
 
     sp_cag_clear = cag_sub.add_parser("clear-cache", help="Clear CAG pack directory")
     sp_cag_clear.add_argument("--dir", default=None, help="CAG directory")
+    sp_cag_clear.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     sp_cag_clear.set_defaults(func=cmd_cag)
 
     sp_cag.set_defaults(func=cmd_cag)

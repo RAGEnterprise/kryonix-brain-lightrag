@@ -9,5 +9,5 @@ target/
 crates/*/target/
 
 # Tests
-tests/*
+tests/
 

@@ -17,10 +17,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from kryonix_brain_lightrag.config import CAG_DIR
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 CAG_BINARY_NAME = "kryonix-cag"
-DEFAULT_CAG_DIR = Path(os.environ.get("LIGHTRAG_CAG_DIR", "/tmp/kryonix-cag"))
+DEFAULT_CAG_DIR = CAG_DIR
 DEFAULT_REPO = Path(os.environ.get("KRYONIX_REPO", "/etc/kryonix"))
 MANIFEST_FILENAME = "manifest.json"
 
@@ -323,8 +325,14 @@ def status(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
 
 def route(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 10) -> dict:
     """Route a query to the most relevant files in the CAG pack."""
+    from kryonix_brain_lightrag.routing import suggest_strategy
+    
     if RUST_BINARY is not None:
-        return _run_rust(["route", query, "--dir", str(cag_dir), "--top-k", str(top_k), "--format", "json"])
+        result = _run_rust(["route", query, "--dir", str(cag_dir), "--top-k", str(top_k), "--format", "json"])
+        # Inject Python-based strategy suggestion even when using Rust for routing
+        result["suggested_strategy"] = suggest_strategy(query)
+        return result
+        
     # Python fallback — delegate to routing.py
     from kryonix_brain_lightrag.routing import route_query_python
     manifest_path = cag_dir / MANIFEST_FILENAME
@@ -345,6 +353,98 @@ def clear_cache(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
     return {"status": "not_found", "dir": str(cag_dir)}
 
 
+def _ollama_request(prompt: str, system: str = "") -> str:
+    """Minimal Ollama request to avoid heavy dependencies."""
+    import http.client
+    import json
+    from kryonix_brain_lightrag.config import OLLAMA_BASE_URL, LLM_MODEL
+    
+    # Simple URL parser for http.client
+    from urllib.parse import urlparse
+    u = urlparse(OLLAMA_BASE_URL)
+    host = u.hostname or "127.0.0.1"
+    port = u.port or 11434
+    
+    conn = http.client.HTTPConnection(host, port, timeout=30)
+    payload = {
+        "model": LLM_MODEL,
+        "prompt": f"System: {system}\n\nUser: {prompt}\n\nAssistant:",
+        "stream": False,
+        "options": {"temperature": 0.2, "num_predict": 512}
+    }
+    
+    try:
+        conn.request("POST", "/api/generate", json.dumps(payload), {"Content-Type": "application/json"})
+        res = conn.getresponse()
+        data = json.loads(res.read().decode())
+        return data.get("response", "").strip()
+    except Exception as e:
+        return f"Error calling Ollama: {e}"
+    finally:
+        conn.close()
+
+
+def ask(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 5) -> dict:
+    """Full CAG: retrieve context and generate an answer using the LLM."""
+    routing_res = route(query, cag_dir=cag_dir, top_k=top_k)
+    matched = routing_res.get("matched_files", [])
+    
+    if not matched:
+        return {
+            "answer": "Não encontrei arquivos relevantes no repositório para responder essa pergunta via CAG.",
+            "sources": [],
+            "status": "no_context"
+        }
+
+    # Build context block
+    context_parts = []
+    repo_root = Path(os.environ.get("KRYONIX_REPO", "/etc/kryonix"))
+    
+    for f in matched:
+        path_str = f["path"]
+        # Try to read the full file from the repo if possible
+        full_path = repo_root / path_str
+        content = ""
+        
+        if full_path.exists() and full_path.is_file():
+            try:
+                # Read first 50KB to keep it safe
+                with open(full_path, "r", encoding="utf-8") as file:
+                    content = file.read(51200)
+                    if len(content) >= 51200:
+                        content += "\n[TRUNCATED...]"
+            except Exception:
+                content = f.get("snippet", "")
+        else:
+            content = f.get("snippet", "")
+            
+        context_parts.append(f"FILE: {path_str}\nCONTENT:\n{content}\n---")
+    
+    context_str = "\n".join(context_parts)
+    
+    system_prompt = (
+        "Você é o Kryonix CAG (Context-Augmented Generation). "
+        "Sua tarefa é responder perguntas sobre o repositório Kryonix usando APENAS o contexto fornecido. "
+        "Se o contexto não contiver a resposta, diga que não sabe. "
+        "Responda em Português do Brasil, de forma técnica e direta."
+    )
+    
+    prompt = (
+        f"CONTEXTO DO REPOSITÓRIO:\n{context_str}\n\n"
+        f"PERGUNTA: {query}\n\n"
+        "Com base no contexto acima, responda de forma técnica:"
+    )
+    
+    answer = _ollama_request(prompt, system=system_prompt)
+    
+    return {
+        "answer": answer,
+        "sources": [f["path"] for f in matched],
+        "status": "success",
+        "routing": routing_res.get("suggested_strategy")
+    }
+
+
 def scan_secrets(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
     """Scan a built CAG directory for leaked secrets."""
     if RUST_BINARY is not None:
@@ -360,6 +460,19 @@ def scan_secrets(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
     if findings:
         return {"status": "FAIL", "secrets_found": True, "findings": findings}
     return {"status": "clean", "secrets_found": False}
+
+
+def clear_cache(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
+    """Clear the CAG cache directory."""
+    if cag_dir.exists():
+        import shutil
+        try:
+            shutil.rmtree(cag_dir)
+            return {"status": "cleared", "path": str(cag_dir), "message": f"CAG directory {cag_dir} removed successfully."}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "path": str(cag_dir)}
+    return {"status": "not_found", "path": str(cag_dir), "message": "CAG directory does not exist."}
+
 
 
 def backend_info() -> dict:

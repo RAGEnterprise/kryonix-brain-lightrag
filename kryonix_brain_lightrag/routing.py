@@ -55,12 +55,138 @@ _KEYWORD_TAG_WEIGHTS: dict[str, list[tuple[str, float]]] = {
     "disco":      [("storage", 2.0)],
     "disk":       [("storage", 2.0)],
     "agents":     [("agent", 2.0), ("docs", 1.0)],
-    "doc":        [("docs", 1.5)],
+    "docs":       [("docs", 1.5)],
+    "documento":  [("docs", 1.5)],
     "roadmap":    [("docs", 1.5)],
     "procure":    [("docs", 0.5)],
     "busque":     [("docs", 0.5)],
     "encontre":   [("docs", 0.5)],
+    "como":       [], # Prevent "como" from matching "disco"
+    "no":         [], # Prevent "no" from matching "nota"
 }
+
+
+def get_path_multiplier(path: str, query_lower: str) -> float:
+    """Determine path-based multiplier for scoring (Tiers)."""
+    path_lower = path.lower()
+    
+    # Check if query is about disks
+    disk_keywords = ["disco", "disk", "partição", "particao", "partition", "instalação", "instalacao", "install", "formatação", "formatacao", "format", "mount", "filesystem", "fs", "nvme", "sda", "vda", "disko", "zfs", "btrfs", "ext4", "storage"]
+    is_disk_query = any(k in query_lower for k in disk_keywords)
+
+    # Check if query is about archive
+    archive_keywords = ["antigo", "legacy", "archive", "histórico", "historico", "history", "vault"]
+    is_archive_query = any(k in query_lower for k in archive_keywords)
+
+    # Tier 4: Disk/Install/ISO Penalty (0.01x)
+    # Aggressive penalty for infrastructure/ISO files when not explicitly asked
+    iso_keywords = ["iso", "live", "bootable", "usb", "flash", "instalação", "instalacao", "install"]
+    is_iso_query = any(k in query_lower for k in iso_keywords)
+
+    if (("disks.nix" in path_lower) or 
+        ("disko" in path_lower) or 
+        ("partition" in path_lower) or 
+        ("live-iso" in path_lower) or
+        ("install" in path_lower) or
+        ("hardware-configuration" in path_lower)) and not (is_disk_query or is_iso_query):
+        return 0.01
+
+    # Tier 4: Archive/Legacy Penalty (0.05x)
+    if (("archive/" in path_lower) or 
+        ("legacy/" in path_lower) or 
+        ("antigo/" in path_lower)) and not is_archive_query:
+        return 0.05
+
+    # Tier 1: Canonical Docs (4.0x for specific matches)
+    if (("docs/hosts/glacier-switch.md" in path_lower or "docs/hosts/glacier-rebuild.md" in path_lower) and 
+        ("rebuild" in query_lower or "switch" in query_lower)):
+        return 5.0
+
+    # Tier 1: General Canonical Docs (3.0x)
+    if ("docs/hosts/" in path_lower or 
+        "docs/ai/" in path_lower or 
+        ".ai/skills/" in path_lower or 
+        path_lower.endswith("readme.md") or 
+        path_lower.endswith("agents.md")):
+        return 3.0
+
+    # Tier 2: Key Configs (1.5x)
+    if ("hosts/glacier/default.nix" in path_lower or 
+        "profiles/glacier-ai.nix" in path_lower or 
+        "modules/nixos/services/brain.nix" in path_lower or
+        "modules/nixos/ai/" in path_lower or
+        "flake.nix" in path_lower):
+        return 1.5
+
+    return 1.0
+
+
+def suggest_strategy(query: str) -> dict[str, Any]:
+    """Suggest the best search strategy (cag, rag, hybrid) for a query."""
+    query_lower = query.lower()
+    
+    # RAG/Hybrid triggers: vault, deep knowledge, history, conversations
+    rag_triggers = {
+        "vault": 0.8, "histórico": 0.7, "historico": 0.7, 
+        "nota antiga": 0.6, "conversa anterior": 0.8, 
+        "brain": 0.4, "lightrag": 0.4, "pensamento": 0.5, 
+        "log": 0.7, "incidente": 0.8, "decisão": 0.7, 
+        "grounding": 0.6, "conhecimento": 0.5,
+        "ontem": 0.6, "passado": 0.5, "conversamos": 0.7
+    }
+    
+    # CAG triggers: repo structure, specific configs, nix files, current implementation
+    cag_triggers = {
+        "cag": 1.0, "context": 0.9,
+        "como funciona": 1.0, "onde fica": 1.0, "configuração": 0.9, 
+        "configuracao": 0.9, "nix": 0.9, "flake": 1.0, "host": 1.0, 
+        "glacier": 1.0, "inspiron": 1.0, "código": 0.9, "codigo": 0.9, 
+        "implementação": 0.9, "implementacao": 0.9, "módulo": 0.9, 
+        "modulo": 0.9, "package": 0.9, "pacote": 0.9, "setup": 0.8,
+        "instalar": 0.7, "build": 0.8, "rebuild": 1.0, "como faço": 1.0,
+        "como faco": 1.0, "guia": 0.8, "tutorial": 0.7, "cli": 0.9,
+        "comando": 0.8, "docker": 0.4, "systemd": 0.9, "service": 0.8,
+        "serviço": 0.8, "run": 0.6, "executar": 0.6, "seguro": 0.5
+    }
+
+    rag_score = 0.0
+    for t, weight in rag_triggers.items():
+        if t in query_lower:
+            rag_score = max(rag_score, weight)
+
+    cag_score = 0.0
+    for t, weight in cag_triggers.items():
+        if t in query_lower:
+            cag_score = max(cag_score, weight)
+
+    # ── Decision Logic ────────────────────────────────────────────────────────
+    # Explicitly force CAG for canonical terms even if RAG scores something
+    canonical_terms = ["glacier", "inspiron", "nix", "flake", "rebuild", "switch", "kryonix", "cli", "diagnóstico", "diagnostico"]
+    is_canonical = any(t in query_lower for t in canonical_terms)
+
+    # If it's a technical "how to" or canonical term, bias heavily towards CAG
+    if is_canonical and not any(t in query_lower for t in ["vault", "histórico", "historico", "log"]):
+        cag_score = max(cag_score, 0.98)
+
+    if cag_score > rag_score and cag_score > 0.3:
+        return {
+            "strategy": "CAG",
+            "score": cag_score,
+            "reason": "Query focuses on repository structure, hosts, or code implementation."
+        }
+    elif rag_score > 0.3:
+        return {
+            "strategy": "HYBRID",
+            "score": rag_score,
+            "reason": "Query mentions vault, history, or knowledge base concepts."
+        }
+    
+    # Default to hybrid with low confidence
+    return {
+        "strategy": "HYBRID",
+        "score": 0.2,
+        "reason": "General query, hybrid provides broad coverage."
+    }
 
 
 def route_query_python(manifest: dict, query: str, top_k: int = 10) -> dict:
@@ -68,7 +194,8 @@ def route_query_python(manifest: dict, query: str, top_k: int = 10) -> dict:
     Pure-Python semantic router.
     Maps query keywords to manifest tags, then ranks files by tag overlap.
     """
-    words = query.lower().split()
+    query_lower = query.lower()
+    words = query_lower.split()
     tag_scores: dict[str, float] = {}
 
     for word in words:
@@ -76,9 +203,9 @@ def route_query_python(manifest: dict, query: str, top_k: int = 10) -> dict:
         if word in _KEYWORD_TAG_WEIGHTS:
             for tag, weight in _KEYWORD_TAG_WEIGHTS[word]:
                 tag_scores[tag] = tag_scores.get(tag, 0.0) + weight
-        # Substring match
+        # Substring match (strict: length > 3 to avoid noise)
         for kw, pairs in _KEYWORD_TAG_WEIGHTS.items():
-            if len(word) > 3 and (word in kw or kw in word):
+            if len(word) > 3 and len(kw) > 3 and (word in kw or kw in word):
                 for tag, weight in pairs:
                     tag_scores[tag] = tag_scores.get(tag, 0.0) + weight * 0.5
 
@@ -96,16 +223,27 @@ def route_query_python(manifest: dict, query: str, top_k: int = 10) -> dict:
     for f in manifest.get("files", []):
         path = f["path"]
         file_tags = tags_index.get(path, set())
-        score = sum(
+        
+        # 1. Base score from tags
+        base_score = sum(
             tag_scores.get(t, 0.0) for t in matched_tags if t in file_tags
         )
-        # Path bonus
+        
+        # 2. Path bonus
         path_lower = path.lower()
+        path_bonus = 0.0
         for w in words:
             if len(w) > 3 and w in path_lower:
-                score += 0.5
-        if score > 0:
-            scored.append((path, score))
+                path_bonus += 0.5
+        
+        total_pre_multiplier = base_score + path_bonus
+        
+        # 3. Tiered Priority and Penalties
+        multiplier = get_path_multiplier(path, query_lower)
+        final_score = total_pre_multiplier * multiplier
+        
+        if final_score > 0:
+            scored.append((path, final_score))
 
     scored.sort(key=lambda x: -x[1])
     scored = scored[:top_k]
@@ -133,4 +271,5 @@ def route_query_python(manifest: dict, query: str, top_k: int = 10) -> dict:
         "matched_files": matched_files,
         "total_tokens_est": total_tokens,
         "backend": "python-fallback",
+        "suggested_strategy": suggest_strategy(query),
     }

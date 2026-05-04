@@ -9,10 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── OS-aware defaults ────────────────────────────────────────────
-_default_brain_home = "/home/rocha/.local/share/kryonix/kryonix-vault"
+_default_brain_home = "/var/lib/kryonix"
 _default_workspace = "/etc/kryonix"
 _default_vault = f"{_default_brain_home}/vault"
 _default_working_dir = f"{_default_brain_home}/storage"
+_default_cag_dir = f"{_default_brain_home}/cag"
 _default_export_subdir = f"{_default_brain_home}/exports"
 _default_refine_subdir = _default_working_dir
 
@@ -23,6 +24,7 @@ BRAIN_HOME = Path(os.getenv("KRYONIX_BRAIN_HOME", _default_brain_home))
 VAULT_DIR = Path(os.getenv("LIGHTRAG_VAULT_DIR", _default_vault))
 VAULT_PROPOSAL_DIR = VAULT_DIR / "00-inbox/ai-proposals"
 WORKING_DIR = Path(os.getenv("LIGHTRAG_WORKING_DIR", _default_working_dir))
+CAG_DIR = Path(os.getenv("LIGHTRAG_CAG_DIR", _default_cag_dir))
 OBSIDIAN_EXPORT_DIR = Path(os.getenv("LIGHTRAG_OBSIDIAN_EXPORT_DIR", _default_export_subdir))
 REFINE_STATE_FILE = Path(os.getenv("LIGHTRAG_REFINE_STATE_FILE", str(WORKING_DIR / "refine_state.json")))
 REFINE_REPORT_FILE = Path(os.getenv("LIGHTRAG_REFINE_REPORT_FILE", str(WORKING_DIR / "refine_report.json")))
