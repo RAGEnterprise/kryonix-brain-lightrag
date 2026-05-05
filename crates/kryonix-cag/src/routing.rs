@@ -122,11 +122,11 @@ fn keyword_tag_weights() -> HashMap<&'static str, Vec<(&'static str, f64)>> {
         ("flake", vec![("flake", 2.0), ("nix", 1.0)]),
         (
             "rebuild",
-            vec![("nix", 1.5), ("host-config", 1.0), ("operations", 1.0)],
+            vec![("nix", 1.5), ("host-config", 1.0), ("operations", 3.0)],
         ),
         (
             "switch",
-            vec![("nix", 1.5), ("host-config", 1.0), ("operations", 1.0)],
+            vec![("nix", 1.5), ("host-config", 1.0), ("operations", 3.0)],
         ),
         ("cli", vec![("cli", 2.5), ("docs", 1.0)]),
         ("comandos", vec![("operations", 1.5), ("cli", 1.0)]),
@@ -148,6 +148,12 @@ fn keyword_tag_weights() -> HashMap<&'static str, Vec<(&'static str, f64)>> {
         ("live", vec![("storage", 1.5)]),
         ("docs", vec![("docs", 1.5)]),
         ("roadmap", vec![("docs", 1.5)]),
+        ("contrato", vec![("operations", 4.0), ("cli", 2.5)]),
+        ("contract", vec![("operations", 4.0), ("cli", 2.5)]),
+        ("canônico", vec![("operations", 3.5), ("cli", 2.0)]),
+        ("canonico", vec![("operations", 3.5), ("cli", 2.0)]),
+        ("canônica", vec![("operations", 3.5), ("cli", 2.0)]),
+        ("canonica", vec![("operations", 3.5), ("cli", 2.0)]),
     ])
 }
 
@@ -239,6 +245,11 @@ fn is_operations_query(query_lower: &str) -> bool {
             "home",
             "update",
             "apply",
+            "contrato",
+            "contract",
+            "canônico",
+            "canônica",
+            "canonica",
         ],
     )
 }
@@ -251,6 +262,10 @@ fn get_path_multiplier(path: &str, query_lower: &str) -> f64 {
     let rebuild_query = is_rebuild_query(query_lower);
     let local_sources_query = is_local_sources_query(query_lower);
     let operations_query = is_operations_query(query_lower);
+
+    if operations_query && path_lower.contains("docs/cli/kryonix_command_contract.md") {
+        return 15.0;
+    }
 
     if local_sources_query
         && (path_lower.contains("docs/ai/nixos-local-knowledge-sources.md")

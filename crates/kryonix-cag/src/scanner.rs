@@ -89,6 +89,8 @@ fn derive_tags(rel_path: &str) -> Vec<String> {
         || p.contains("rebuild")
         || p.contains("switch")
         || p.contains("doctor")
+        || p.contains("contract")
+        || p.contains("contrato")
     {
         tags.push("operations".into());
     }
@@ -129,8 +131,9 @@ fn derive_tags(rel_path: &str) -> Vec<String> {
     if p.contains("agents.md") || p.contains("agents/") {
         tags.push("agent".into());
     }
-    if p.contains("docs/cli.md") || p.ends_with("cli.md") || p.contains("kryonix-cli") {
+    if p.contains("docs/cli/") || p.contains("docs/cli.md") || p.ends_with("cli.md") || p.contains("kryonix-cli") {
         tags.push("cli".into());
+        tags.push("operations".into());
     }
     if p.contains("docs/operations.md") || p.ends_with("operations.md") {
         tags.push("operations".into());

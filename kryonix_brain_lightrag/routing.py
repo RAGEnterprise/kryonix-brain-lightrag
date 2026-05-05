@@ -48,8 +48,8 @@ _KEYWORD_TAG_WEIGHTS: dict[str, list[tuple[str, float]]] = {
     "módulo":     [("nixos-module", 2.0), ("nix", 1.0)],
     "modulo":     [("nixos-module", 2.0), ("nix", 1.0)],
     "module":     [("nixos-module", 2.0), ("nix", 1.0)],
-    "rebuild":    [("nix", 1.5), ("host-config", 1.0)],
-    "switch":     [("nix", 1.5), ("host-config", 1.0)],
+    "rebuild":    [("nix", 1.5), ("host-config", 1.0), ("operations", 3.0)],
+    "switch":     [("nix", 1.5), ("host-config", 1.0), ("operations", 3.0)],
     "kryonix":    [("cli", 2.5), ("operations", 1.5), ("docs", 1.0)],
     "check":      [("operations", 2.0), ("cli", 1.0)],
     "home":       [("operations", 1.5), ("cli", 1.0)],
@@ -78,6 +78,12 @@ _KEYWORD_TAG_WEIGHTS: dict[str, list[tuple[str, float]]] = {
     "procure":    [("docs", 0.5)],
     "busque":     [("docs", 0.5)],
     "encontre":   [("docs", 0.5)],
+    "contrato":   [("operations", 4.0), ("cli", 2.5)],
+    "contract":   [("operations", 4.0), ("cli", 2.5)],
+    "canônico":   [("operations", 3.5), ("cli", 2.0)],
+    "canonico":   [("operations", 3.5), ("cli", 2.0)],
+    "canônica":   [("operations", 3.5), ("cli", 2.0)],
+    "canonica":   [("operations", 3.5), ("cli", 2.0)],
     "como":       [], # Prevent "como" from matching "disco"
     "no":         [], # Prevent "no" from matching "nota"
 }
@@ -123,6 +129,13 @@ def get_path_multiplier(path: str, query_lower: str) -> float:
         ("rebuild" in query_lower or "switch" in query_lower)):
         return 5.0
 
+    # Tier 0: Canonical Command Contract (15.0x) - The Source of Truth
+    op_keywords = ["cli", "kryonix", "operacional", "comando", "comandos", "boot", "test", "check", "fmt", "doctor", "switch", "rebuild", "home", "update", "apply", "contrato", "contract", "canônico", "canônica", "canonica"]
+    is_ops_query = any(k in query_lower for k in op_keywords)
+    
+    if is_ops_query and "docs/cli/kryonix_command_contract.md" in path_lower:
+        return 15.0
+
     if ("docs/ai/nixos-local-knowledge-sources.md" in path_lower or
         ".ai/skills/brain/nixos-local-sources.md" in path_lower) and any(
         term in query_lower for term in ["bancos", "fontes", "locais", "local", "source", "sources", "nixos"]
@@ -152,9 +165,10 @@ def get_path_multiplier(path: str, query_lower: str) -> float:
             "docs/hosts/glacier-switch.md",
             ".ai/skills/commands/rebuild-nixos.md",
             "packages/kryonix-cli.nix",
+            "docs/cli/KRYONIX_COMMAND_CONTRACT.md",
         ]
-    ) and any(term in query_lower for term in ["check", "rebuild", "switch", "home", "update", "boot", "test", "apply", "kryonix"]):
-        return 7.0
+    ) and any(term in query_lower for term in ["check", "rebuild", "switch", "home", "update", "boot", "test", "apply", "kryonix", "contrato", "canônico"]):
+        return 15.0
 
     if any(
         marker in path_lower for marker in [

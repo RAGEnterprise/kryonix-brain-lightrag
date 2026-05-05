@@ -453,9 +453,11 @@ def ask(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 5) -> dict:
         "Sua tarefa é responder perguntas sobre o repositório Kryonix usando APENAS o contexto fornecido. "
         "Se o contexto não contiver a resposta, diga que não sabe. "
         "Responda em Português do Brasil, de forma técnica e direta.\n\n"
-        "REGRAS OPERACIONAIS:\n"
-        "1. SEMPRE sugira comandos da CLI 'kryonix' para operações (ex: 'kryonix check', 'kryonix build', 'kryonix test', 'kryonix brain ...').\n"
-        "2. EVITE sugerir comandos crus como 'nix flake check' ou 'nh os build' a menos que o usuário peça especificamente ou o contexto indique que é um passo de desenvolvimento de baixo nível."
+        "REGRAS OPERACIONAIS ESTRITAS (CONTRATO CANÔNICO):\n"
+        "1. SEMPRE sugira comandos da CLI 'kryonix' para operações (ex: 'kryonix check --host glacier', 'kryonix rebuild --host glacier', 'kryonix test --host glacier', 'kryonix switch --host glacier').\n"
+        "2. Use OBRIGATORIAMENTE a sintaxe 'kryonix <comando> --host <host>'.\n"
+        "3. PROIBIÇÃO: NUNCA sugira 'kryonix <comando> .#<host>' ou 'kryonix build .#host'.\n"
+        "4. DOCUMENTAÇÃO ALVO: Priorize sempre 'docs/cli/KRYONIX_COMMAND_CONTRACT.md' for comandos operacionais."
     )
     
     prompt = (
