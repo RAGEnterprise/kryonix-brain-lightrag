@@ -9,10 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── OS-aware defaults ────────────────────────────────────────────
-_default_brain_home = "/home/rocha/.local/share/kryonix/kryonix-vault"
+_default_brain_home = "/var/lib/kryonix"
 _default_workspace = "/etc/kryonix"
 _default_vault = f"{_default_brain_home}/vault"
 _default_working_dir = f"{_default_brain_home}/storage"
+_default_cag_dir = f"{_default_brain_home}/cag"
 _default_export_subdir = f"{_default_brain_home}/exports"
 _default_refine_subdir = _default_working_dir
 
@@ -23,6 +24,7 @@ BRAIN_HOME = Path(os.getenv("KRYONIX_BRAIN_HOME", _default_brain_home))
 VAULT_DIR = Path(os.getenv("LIGHTRAG_VAULT_DIR", _default_vault))
 VAULT_PROPOSAL_DIR = VAULT_DIR / "00-inbox/ai-proposals"
 WORKING_DIR = Path(os.getenv("LIGHTRAG_WORKING_DIR", _default_working_dir))
+CAG_DIR = Path(os.getenv("LIGHTRAG_CAG_DIR", _default_cag_dir))
 OBSIDIAN_EXPORT_DIR = Path(os.getenv("LIGHTRAG_OBSIDIAN_EXPORT_DIR", _default_export_subdir))
 REFINE_STATE_FILE = Path(os.getenv("LIGHTRAG_REFINE_STATE_FILE", str(WORKING_DIR / "refine_state.json")))
 REFINE_REPORT_FILE = Path(os.getenv("LIGHTRAG_REFINE_REPORT_FILE", str(WORKING_DIR / "refine_report.json")))
@@ -82,6 +84,10 @@ REGRAS DE GROUNDING:
 8. Se a resposta exigir inferência, deixe claro que é uma inferência.
 9. Não transforme uma resposta técnica em explicação genérica.
 10. Não cite tecnologias, áreas ou funcionalidades que não estejam no contexto recuperado, exceto quando o usuário pedir comparação ou sugestão externa.
+11. REGRAS OPERACIONAIS (CONTRATO CANÔNICO): Sempre sugira o uso da CLI 'kryonix' para operações comuns. Use obrigatoriamente a sintaxe: 'kryonix <comando> --host <host>'.
+    Exemplos Válidos: 'kryonix check --host glacier', 'kryonix rebuild --host glacier', 'kryonix test --host glacier', 'kryonix switch --host glacier', 'kryonix home --host glacier'.
+12. PROIBIÇÕES ESTRITAS: NUNCA sugira a sintaxe 'kryonix <comando> .#<host>'. NUNCA sugira 'kryonix build .#host'. NUNCA sugira 'sudo kryonix test'.
+13. PRIORIDADE DE DOCUMENTAÇÃO: Se a pergunta for sobre comandos, priorize o conteúdo de 'docs/cli/KRYONIX_COMMAND_CONTRACT.md'.
 
 FORMATO:
 - Comece com a resposta direta.
@@ -91,12 +97,12 @@ FORMATO:
 """).strip()
 
 # ── Profiles ─────────────────────────────────────────────────────
-# safe     → qwen2.5-coder:3b  — RTX 4060 8GB, first-run stable
+# safe     → qwen2.5-coder:7b  — local, stable enough for first-run
 # balanced → qwen2.5-coder:7b  — faster extraction, slightly heavier
 # query    → qwen2.5-coder:7b  — used for interactive queries after indexing
 PROFILES: dict[str, dict] = {
     "safe": {
-        "llm_model": "qwen2.5-coder:3b",
+        "llm_model": "qwen2.5-coder:7b",
         "llm_model_max_async": 1,
         "max_parallel_insert": 1,
         "embedding_batch_num": 1,

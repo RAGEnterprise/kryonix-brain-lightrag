@@ -1,0 +1,31 @@
+[package]
+name = "kryonix-cag"
+version = "0.1.0"
+edition = "2021"
+description = "Kryonix CAG — Context-Augmented Generation pack builder and router"
+authors = ["Kryonix"]
+
+[[bin]]
+name = "kryonix-cag"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ignore = "0.4"
+blake3 = "1.5"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true

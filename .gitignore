@@ -3,3 +3,11 @@ rag_storage/
 .index_manifest.json
 __pycache__/
 *.pyc
+
+# Rust build outputs
+target/
+crates/*/target/
+
+# Tests
+tests/
+
