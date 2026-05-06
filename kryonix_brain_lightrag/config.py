@@ -12,9 +12,9 @@ load_dotenv()
 _default_brain_home = "/var/lib/kryonix"
 _default_workspace = "/etc/kryonix"
 _default_vault = f"{_default_brain_home}/vault"
-_default_working_dir = f"{_default_brain_home}/storage"
-_default_cag_dir = f"{_default_brain_home}/cag"
-_default_export_subdir = f"{_default_brain_home}/exports"
+_default_working_dir = f"{_default_brain_home}/brain/storage"
+_default_cag_dir = f"{_default_brain_home}/brain/cag"
+_default_export_subdir = f"{_default_brain_home}/brain/exports"
 _default_refine_subdir = _default_working_dir
 
 # ── Paths ────────────────────────────────────────────────────────
@@ -172,10 +172,15 @@ INDEX_LOCK_FILE         = Path(os.getenv("LIGHTRAG_INDEX_LOCK_FILE",
                                str(WORKING_DIR / ".index.lock")))
 VAULT_CURATE_REPORT     = WORKING_DIR / "vault_curate_report.json"
 VAULT_SYNC_LOG          = WORKING_DIR / "vault_sync.log"
+try:
+    WORKING_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
-WORKING_DIR.mkdir(parents=True, exist_ok=True)
-OBSIDIAN_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-
+try:
+    OBSIDIAN_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 # ── Backward-compatible aliases ───────────────────────────────────
 STORAGE_DIR   = WORKING_DIR
 VAULT_PATH    = OBSIDIAN_EXPORT_DIR

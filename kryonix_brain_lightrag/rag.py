@@ -20,9 +20,13 @@ from .config import (
     MAX_PARALLEL_INSERT,
     WORKING_DIR,
     RESPONSE_LANGUAGE,
-    ANSWER_SYSTEM_PROMPT
+    ANSWER_SYSTEM_PROMPT,
+    VERBOSE
 )
 from .llm import embedding_func, llm_func
+
+import logging
+logger = logging.getLogger("kryonix-brain-rag")
 
 from rich.console import Console
 console = Console(stderr=True)

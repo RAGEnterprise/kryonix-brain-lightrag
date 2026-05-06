@@ -262,6 +262,40 @@ def _build_manifest_python(profile: str, repo: Path, out: Path) -> dict:
         h.update(f["blake3"].encode())
     content_hash = h.hexdigest()
 
+    # Resolve physical path via resolve if symlink
+    p_path = str(repo)
+    try:
+        p_path = str(Path(repo).resolve())
+    except Exception:
+        pass
+
+    # Get git commit hash
+    git_commit = "unknown"
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo), text=True).strip()
+    except Exception:
+        pass
+
+    # Detect role/host
+    role = os.environ.get("KRYONIX_ROLE", "server")
+    host = os.environ.get("HOSTNAME", "glacier")
+
+    metadata = {
+        "canonical_path": str(repo),
+        "physical_path": p_path,
+        "host": host,
+        "role": role,
+        "repo_commit": git_commit,
+        "source_hash": content_hash[:16],
+        "index_version": "1.0.0",
+    }
+
+    # Detect client role
+    is_client = (os.environ.get("KRYONIX_ROLE") == "client" or os.environ.get("HOSTNAME") != "glacier")
+    if is_client:
+        metadata["remote_source"] = "glacier"
+        metadata["remote_api"] = os.environ.get("KRYONIX_BRAIN_URL", "http://glacier-publico:8000")
+
     manifest = {
         "version": 1,
         "profile": profile,
@@ -272,6 +306,7 @@ def _build_manifest_python(profile: str, repo: Path, out: Path) -> dict:
         "content_hash": content_hash,
         "files": files,
         "tags": tags,
+        "metadata": metadata,
     }
 
     out.mkdir(parents=True, exist_ok=True)

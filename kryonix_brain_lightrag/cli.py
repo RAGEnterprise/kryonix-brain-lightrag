@@ -1605,7 +1605,11 @@ def main():
     args = p.parse_args()
     if hasattr(args, "term") and isinstance(args.term, list):
         args.term = " ".join(args.term)
-    asyncio.run(args.func(args))
+    try:
+        asyncio.run(args.func(args))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrompido pelo usuário.[/yellow]")
+        sys.exit(130)
 
 
 if __name__ == "__main__":
