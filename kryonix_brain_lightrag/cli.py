@@ -333,7 +333,17 @@ async def cmd_search(args):
     # ── CAG Strategy Integration ──────────────────────────────────────────
     from . import cag
     query_str = " ".join(args.term) if isinstance(args.term, list) else args.term
-    route_preview = cag.route(query_str, top_k=top_k)
+    try:
+        route_preview = cag.route(query_str, top_k=top_k)
+    except Exception as e:
+        # Graceful fallback: when CAG is not built yet or has issues, suggest Hybrid/RAG
+        err_msg = str(e).splitlines()[0] if str(e).strip() else "indisponível"
+        route_preview = {
+            "strategy": "hybrid",
+            "confidence": 0.0,
+            "confidence_label": "Baixa",
+            "reason": f"CAG indisponível ({err_msg}). Usando RAG padrão.",
+        }
     cag_strategy = {
         "strategy": route_preview.get("strategy", "hybrid"),
         "confidence": route_preview.get("confidence", 0.2),
