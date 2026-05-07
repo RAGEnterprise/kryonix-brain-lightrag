@@ -19,8 +19,12 @@ API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 async def get_api_key(api_key: str = Depends(api_key_header)):
-    expected_key = os.getenv("KRYONIX_BRAIN_KEY")
-    if expected_key and api_key != expected_key:
+    expected_key = os.getenv("KRYONIX_BRAIN_KEY") or os.getenv("KRYONIX_BRAIN_API_KEY")
+    if not expected_key:
+        raise HTTPException(status_code=401, detail="Acesso negado: Nenhuma API Key configurada no servidor")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Acesso negado: API Key não fornecida")
+    if api_key != expected_key:
         raise HTTPException(status_code=403, detail="Acesso negado: API Key inválida")
     return api_key
 
