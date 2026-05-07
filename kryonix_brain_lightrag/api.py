@@ -264,8 +264,8 @@ async def ingest_reject(item_id: str, api_key: str = Depends(get_api_key)):
 def main():
     import uvicorn
     
-    host = os.getenv("KRYONIX_BRAIN_HOST", "0.0.0.0")
-    port = int(os.getenv("KRYONIX_BRAIN_PORT", "8000"))
+    host = os.getenv("KRYONIX_BRAIN_API_HOST", os.getenv("KRYONIX_BRAIN_HOST", "127.0.0.1"))
+    port = int(os.getenv("KRYONIX_BRAIN_API_PORT", os.getenv("KRYONIX_BRAIN_PORT", "8000")))
     
     logger.info(f"Starting Kryonix Brain API on {host}:{port}")
     uvicorn.run(app, host=host, port=port)
