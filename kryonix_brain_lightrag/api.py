@@ -124,6 +124,44 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
         logger.error(f"Error during search: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ── CAG Endpoints ────────────────────────────────────────────────
+class CagQueryRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+@app.post("/cag/ask")
+async def cag_ask(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
+    """Executa uma pergunta CAG remota."""
+    from . import cag as cag_mod
+    try:
+        res = cag_mod.ask(query=req.query, top_k=req.top_k)
+        return res
+    except Exception as e:
+        logger.error(f"Error in remote cag ask: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cag/route")
+async def cag_route(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
+    """Executa um roteamento CAG remoto."""
+    from . import cag as cag_mod
+    try:
+        res = cag_mod.route(query=req.query, top_k=req.top_k)
+        return res
+    except Exception as e:
+        logger.error(f"Error in remote cag route: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/cag/status")
+async def cag_status(api_key: str = Depends(get_api_key)):
+    """Verifica o status do CAG pack remoto."""
+    from . import cag as cag_mod
+    try:
+        res = cag_mod.status()
+        return res
+    except Exception as e:
+        logger.error(f"Error in remote cag status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Ingestion Pipeline ───────────────────────────────────────────
 # Fluxo: propose → queue → approve/reject
 # Nenhum conteúdo entra no grafo sem aprovação explícita.
