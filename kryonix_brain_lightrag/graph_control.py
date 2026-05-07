@@ -87,30 +87,27 @@ def _neo4j_http_url() -> str:
 
 
 def _neo4j_user() -> str:
+    auth = os.getenv("NEO4J_AUTH", "")
+    if auth.startswith("neo4j/"):
+        return "neo4j"
     return os.getenv("KRYONIX_NEO4J_USER", "neo4j")
 
 
 def _neo4j_password() -> str:
-    pwd = os.getenv("KRYONIX_NEO4J_PASSWORD", "")
-    if pwd:
-        return pwd
-
-    env_path = Path("/etc/kryonix/neo4j.env")
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            if key.strip() == "KRYONIX_NEO4J_PASSWORD":
-                return value.strip().strip('"').strip("'")
-    return ""
+    auth = os.getenv("NEO4J_AUTH", "")
+    if auth.startswith("neo4j/"):
+        return auth.split("/", 1)[1]
+    return os.getenv("KRYONIX_NEO4J_PASSWORD", "")
 
 
 def _neo4j_headers() -> dict[str, str]:
     import base64
 
-    cred = f"{_neo4j_user()}:{_neo4j_password()}".encode("utf-8")
+    user = _neo4j_user()
+    pwd = _neo4j_password()
+    if not pwd:
+        raise RuntimeError("Neo4j credential is not configured in service environment")
+    cred = f"{user}:{pwd}".encode("utf-8")
     token = base64.b64encode(cred).decode("ascii")
     return {
         "Accept": "application/json",
@@ -461,8 +458,7 @@ def graph_doctor() -> dict[str, Any]:
     checks["neo4j_tcp_7474"] = _check_tcp("127.0.0.1", 7474)
     checks["neo4j_tcp_7687"] = _check_tcp("127.0.0.1", 7687)
 
-    env_path = Path("/etc/kryonix/neo4j.env")
-    checks["neo4j_env_exists"] = env_path.exists()
+    checks["neo4j_auth_env_available"] = bool(os.getenv("NEO4J_AUTH"))
     checks["neo4j_password_available"] = bool(_neo4j_password())
 
     try:
