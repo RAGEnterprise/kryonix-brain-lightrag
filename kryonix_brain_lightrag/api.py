@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from . import rag as rag_mod
+from . import graph_control
 from .utils import SecretScanner
 
 # Configuração de log
@@ -129,6 +130,13 @@ class CagQueryRequest(BaseModel):
     query: str
     top_k: int = 5
 
+class GraphQueryRequest(BaseModel):
+    query: str
+    timeout_sec: float = 5.0
+
+class GraphIngestApplyRequest(BaseModel):
+    manifest_id: str
+
 @app.post("/cag/ask")
 async def cag_ask(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
     """Executa uma pergunta CAG remota."""
@@ -160,6 +168,54 @@ async def cag_status(api_key: str = Depends(get_api_key)):
         return res
     except Exception as e:
         logger.error(f"Error in remote cag status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/graph/status")
+async def graph_status(api_key: str = Depends(get_api_key)):
+    try:
+        return graph_control.graph_status()
+    except Exception as e:
+        logger.error(f"Error in graph status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/graph/schema")
+async def graph_schema(api_key: str = Depends(get_api_key)):
+    return graph_control.graph_schema()
+
+@app.post("/graph/ingest/dry-run")
+async def graph_ingest_dry_run(api_key: str = Depends(get_api_key)):
+    try:
+        return graph_control.dry_run_ingest()
+    except Exception as e:
+        logger.error(f"Error in graph dry-run ingest: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/graph/ingest/apply")
+async def graph_ingest_apply(req: GraphIngestApplyRequest, api_key: str = Depends(get_api_key)):
+    try:
+        return graph_control.apply_manifest(req.manifest_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error applying graph manifest {req.manifest_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/graph/query")
+async def graph_query(req: GraphQueryRequest, api_key: str = Depends(get_api_key)):
+    try:
+        return graph_control.graph_query(req.query, timeout_sec=req.timeout_sec)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error in graph query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/graph/doctor")
+async def graph_doctor(api_key: str = Depends(get_api_key)):
+    try:
+        return graph_control.graph_doctor()
+    except Exception as e:
+        logger.error(f"Error in graph doctor: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ── Ingestion Pipeline ───────────────────────────────────────────
@@ -314,4 +370,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
