@@ -88,14 +88,14 @@ def _neo4j_http_url() -> str:
 
 def _neo4j_user() -> str:
     auth = os.getenv("NEO4J_AUTH", "")
-    if auth.startswith("neo4j/"):
-        return "neo4j"
+    if "/" in auth:
+        return auth.split("/", 1)[0].strip() or "neo4j"
     return os.getenv("KRYONIX_NEO4J_USER", "neo4j")
 
 
 def _neo4j_password() -> str:
     auth = os.getenv("NEO4J_AUTH", "")
-    if auth.startswith("neo4j/"):
+    if "/" in auth:
         return auth.split("/", 1)[1]
     return os.getenv("KRYONIX_NEO4J_PASSWORD", "")
 
