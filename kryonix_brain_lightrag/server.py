@@ -159,7 +159,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # --- Proposals & Events ---
         elif name == "brain_learn_propose":
             import httpx
-            api_key = os.getenv("KRYONIX_BRAIN_KEY")
+            api_key = os.getenv("KRYONIX_BRAIN_API_KEY") or os.getenv("KRYONIX_BRAIN_KEY")
             port = os.getenv("KRYONIX_BRAIN_PORT", "8000")
             url = f"http://127.0.0.1:{port}/ingest/propose"
             async with httpx.AsyncClient() as client:
@@ -176,7 +176,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "brain_note_propose":
             import httpx
-            api_key = os.getenv("KRYONIX_BRAIN_KEY")
+            api_key = os.getenv("KRYONIX_BRAIN_API_KEY") or os.getenv("KRYONIX_BRAIN_KEY")
             port = os.getenv("KRYONIX_BRAIN_PORT", "8000")
             url = f"http://127.0.0.1:{port}/notes/propose"
             async with httpx.AsyncClient() as client:
@@ -194,7 +194,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "brain_events_log":
             import httpx
-            api_key = os.getenv("KRYONIX_BRAIN_KEY")
+            api_key = os.getenv("KRYONIX_BRAIN_API_KEY") or os.getenv("KRYONIX_BRAIN_KEY")
             port = os.getenv("KRYONIX_BRAIN_PORT", "8000")
             url = f"http://127.0.0.1:{port}/events/log"
             async with httpx.AsyncClient() as client:
