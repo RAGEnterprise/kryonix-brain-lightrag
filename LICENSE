@@ -1,0 +1,42 @@
+Kryonix Proprietary Source-Available License
+
+Copyright (c) 2026 Gabriel Aguiar Rocha.
+All rights reserved.
+
+This subproject and its source code are made available for reading, auditing,
+personal review, educational reference, and evaluation purposes only.
+
+Unless a separate written agreement is granted by the copyright holder, you are
+not permitted to:
+
+- copy this software for redistribution;
+- publish, sublicense, sell, rent, lease, or commercially exploit this software;
+- distribute modified or unmodified copies;
+- use the Kryonix name, branding, assets, wallpapers, documentation, or project
+  identity in derivative distributions;
+- remove copyright, authorship, or license notices;
+- represent forks, copies, or derivative works as official Kryonix releases.
+
+You may clone or view the repository only to the extent allowed by the hosting
+platform terms and for private evaluation. Any production, commercial,
+redistribution, managed service, appliance, installer, ISO, hosted offering, or
+derivative distribution requires explicit written permission from Gabriel
+Aguiar Rocha.
+
+Third-party components, dependencies, packages, and external projects referenced
+or used by this project remain governed by their own respective licenses.
+
+Code, documentation, assets, scripts, modules, packages, and subprojects
+authored specifically for Kryonix by Gabriel Aguiar Rocha, including work
+created with AI assistance under his direction, are covered by this license.
+
+Historical versions of this project that were explicitly published under a
+different license remain governed by the license terms that accompanied those
+specific versions.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+A PARTICULAR PURPOSE, SECURITY, AVAILABILITY, OR NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGE, DATA LOSS, SERVICE
+INTERRUPTION, SECURITY INCIDENT, OR OTHER LIABILITY ARISING FROM USE, REVIEW,
+MODIFICATION, DEPLOYMENT, OR DISTRIBUTION OF THIS SOFTWARE.
