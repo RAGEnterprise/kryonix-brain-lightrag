@@ -73,24 +73,24 @@ def _run_rust(args: list[str]) -> dict[str, Any]:
 import re as _re
 
 _SECRET_PATTERNS = [
-    _re.compile(r"ntn_[A-Za-z0-9]{20,}"),
-    _re.compile(r"ghp_[A-Za-z0-9]{20,}"),
-    _re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    _re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    _re.compile(r"ntn_[A-Za-z0-9]{20,}"), # gitleaks:allow
+    _re.compile(r"ghp_[A-Za-z0-9]{20,}"), # gitleaks:allow
+    _re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), # gitleaks:allow
+    _re.compile(r"sk-[A-Za-z0-9]{20,}"), # gitleaks:allow
     # PEM blocks — separate patterns per key type
-    _re.compile(r"-----BEGIN RSA PRIVATE KEY-----"),
-    _re.compile(r"-----BEGIN OPENSSH PRIVATE KEY-----"),
-    _re.compile(r"-----BEGIN PRIVATE KEY-----"),
-    _re.compile(r"-----BEGIN EC PRIVATE KEY-----"),
+    _re.compile(r"-----BEGIN RSA PRIVATE KEY-----"), # gitleaks:allow
+    _re.compile(r"-----BEGIN OPENSSH PRIVATE KEY-----"), # gitleaks:allow
+    _re.compile(r"-----BEGIN PRIVATE KEY-----"), # gitleaks:allow
+    _re.compile(r"-----BEGIN EC PRIVATE KEY-----"), # gitleaks:allow
     # Common env var names
-    _re.compile(r"OPENAI_API_KEY\s*=\s*\S+"),
-    _re.compile(r"ANTHROPIC_API_KEY\s*=\s*\S+"),
-    _re.compile(r"NOTION_TOKEN\s*=\s*\S+"),
+    _re.compile(r"OPENAI_API_KEY\s*=\s*\S+"), # gitleaks:allow
+    _re.compile(r"ANTHROPIC_API_KEY\s*=\s*\S+"), # gitleaks:allow
+    _re.compile(r"NOTION_TOKEN\s*=\s*\S+"), # gitleaks:allow
     # Tailscale auth keys
-    _re.compile(r"tskey-[A-Za-z0-9\-]{20,}"),
+    _re.compile(r"tskey-[A-Za-z0-9\-]{20,}"), # gitleaks:allow
     # Generic secrets
-    _re.compile(r"password\s*=\s*['\"]?\S{8,}['\"]?", _re.IGNORECASE),
-    _re.compile(r"secret\s*=\s*['\"]?\S{8,}['\"]?", _re.IGNORECASE),
+    _re.compile(r"password\s*=\s*['\"]?\S{8,}['\"]?", _re.IGNORECASE), # gitleaks:allow
+    _re.compile(r"secret\s*=\s*['\"]?\S{8,}['\"]?", _re.IGNORECASE), # gitleaks:allow
 ]
 
 
