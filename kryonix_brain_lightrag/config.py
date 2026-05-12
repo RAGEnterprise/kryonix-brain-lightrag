@@ -207,6 +207,8 @@ EXCLUDE_EXTS: set[str] = {
     "*.pdf", "*.zip", "*.7z", "*.tar", "*.gz",
     "*.exe", "*.dll", "*.so", "*.bin",
     "*.lock",
+    "*.pem",
+    "*.key",
 }
 
 EXCLUDE_FILES: set[str] = {
@@ -222,6 +224,10 @@ EXCLUDE_FILES: set[str] = {
 # Entire path prefixes that must be excluded
 _EXCLUDE_PATH_PREFIXES: tuple[str, ...] = (
     "packages/kryonix-brain-lightrag/",
+    ".context/",
+    ".agents/scratch/",
+    ".gemini/",
+    ".antigravity/",
 )
 
 
@@ -229,6 +235,7 @@ def should_exclude_path(rel_path: str) -> bool:
     norm = rel_path.replace("\\", "/")
     parts = norm.split("/")
     filename = parts[-1]
+    filename_lower = filename.lower()
 
     # Special case for vault files (since they are prefixed with vault/ in indexer)
     if norm.startswith("vault/"):
@@ -252,6 +259,24 @@ def should_exclude_path(rel_path: str) -> bool:
         return True
 
     if filename in EXCLUDE_FILES or filename.startswith(".env."):
+        return True
+
+    # Exclude backup, failed, or sensitive extension files
+    if (
+        filename.endswith(".env")
+        or filename.endswith(".bak")
+        or filename.endswith(".failed")
+        or filename_lower in ("brain.env", "neo4j.env")
+    ):
+        return True
+
+    # Exclude files containing sensitive terms (avoid indexing secrets)
+    for sensitive_keyword in ["secret", "token", "credential", "private"]:
+        if sensitive_keyword in filename_lower:
+            return True
+
+    # Exclude typo or accident files
+    if "udo rfkill list" in filename:
         return True
 
     if any(fnmatch.fnmatch(filename, ext) for ext in EXCLUDE_EXTS):
