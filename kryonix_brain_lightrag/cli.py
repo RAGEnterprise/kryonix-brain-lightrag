@@ -397,7 +397,7 @@ async def cmd_search(args):
                 console.print(f"[yellow][AVISO][/yellow] Falha no CAG: {e}. Tentando fallback...")
 
     # ── Step 2: Check RAG Health ───────────────────────────────────────────
-    if is_rag_empty() and not getattr(args, "rag_only", False):
+    if is_rag_empty() and not getattr(args, "rag_only", False) and not test_provider:
         msg = "RAG storage está vazio ou inativo. Use `kryonix brain sync` para indexar o vault."
         if getattr(args, "json", False):
             print(json.dumps({"status": "error", "answer": msg}))

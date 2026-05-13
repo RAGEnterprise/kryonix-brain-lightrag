@@ -617,7 +617,10 @@ def _build_ask_search_comparison_answer(sources: list[dict]) -> str:
 
 
 async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False, explain: bool = False, intent: str = "ask", test_provider: str | None = None) -> dict:
-    from .llm import USED_BACKEND, PROVIDER_OVERRIDE
+    from .llm import USED_BACKEND, PROVIDER_OVERRIDE, METRICS
+    
+    # Initialize metrics for this request
+    METRICS.set({})
     
     token = PROVIDER_OVERRIDE.set(test_provider)
     try:
@@ -848,22 +851,24 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             "sources": sources,
             "mode": search_mode,
             "strategy": strategy["strategy"],
-            "provider": USED_BACKEND.get()
+            "provider": USED_BACKEND.get(),
+            "metrics": METRICS.get()
         }
         
         if explain:
             # Apenas adiciona meta-informação, sem duplicar a lista de fontes que a CLI já mostra
+            metrics = res_dict.get("metrics", {})
+            tps_str = f"{metrics.get('tps', 0):.2f}" if "tps" in metrics else "N/A"
             res_dict["answer"] += (
                 "\n\n---\n"
                 "**Metadados da Busca:**\n"
+                f"- Backend: `{res_dict['provider']}` ({tps_str} tokens/s)\n"
                 f"- Modo: `{search_mode}`\n"
                 f"- Intent: `{intent}`\n"
                 f"- Estratégia: `{strategy['strategy']}`\n"
                 f"- Grounding: `{grounding['grounding_label']}` ({round(max_score, 3)})\n"
                 f"- Answerability: `{grounding['answerability']}`\n"
                 f"- Query normalizada: `{normalized_term}`\n"
-                f"- Termos cobertos: `{', '.join(grounding['covered_terms']) or 'nenhum'}`\n"
-                f"- Termos ausentes: `{', '.join(grounding['missing_terms']) or 'nenhum'}`"
             )
             
         return res_dict
@@ -879,6 +884,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             "confidence": "None",
             "sources": [],
             "provider": USED_BACKEND.get(),
+            "metrics": METRICS.get(),
             "grounding": build_grounding_metadata(
                 mode=mode,
                 strategy="error",

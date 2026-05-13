@@ -10,8 +10,10 @@ from contextvars import ContextVar
 # Global Context for tracking the backend used in the current request
 USED_BACKEND = ContextVar("used_backend", default="unknown")
 PROVIDER_OVERRIDE = ContextVar("provider_override", default=None)
+METRICS = ContextVar("llm_metrics", default={})
 
 import numpy as np
+import time
 from ollama import AsyncClient
 from lightrag.utils import wrap_embedding_func_with_attrs
 
@@ -47,6 +49,26 @@ async def _ollama_generate(messages: list[dict[str, str]], **kwargs: Any) -> str
         },
         keep_alive="5m",
     )
+    
+    # Capture metrics
+    m = {}
+    if isinstance(response, dict):
+        m["prompt_tokens"] = response.get("prompt_eval_count", 0)
+        m["completion_tokens"] = response.get("eval_count", 0)
+        # Ollama durations are in nanoseconds
+        m["total_duration_ms"] = response.get("total_duration", 0) / 1e6
+        m["eval_duration_ms"] = response.get("eval_duration", 0) / 1e6
+    else:
+        m["prompt_tokens"] = getattr(response, "prompt_eval_count", 0)
+        m["completion_tokens"] = getattr(response, "eval_count", 0)
+        m["total_duration_ms"] = getattr(response, "total_duration", 0) / 1e6
+        m["eval_duration_ms"] = getattr(response, "eval_duration", 0) / 1e6
+
+    # Calculate TPS (Tokens Per Second)
+    if m.get("eval_duration_ms", 0) > 0:
+        m["tps"] = (m["completion_tokens"] / m["eval_duration_ms"]) * 1000
+    
+    METRICS.set(m)
     return _message_content(response)
 
 
@@ -61,9 +83,26 @@ async def _llama_cpp_generate(messages: list[dict[str, str]], **kwargs: Any) -> 
     }
     
     async with httpx.AsyncClient(timeout=LLAMA_CPP_TIMEOUT) as client:
+        start_time = time.monotonic()
         response = await client.post(url, json=payload)
+        end_time = time.monotonic()
+        
         response.raise_for_status()
         data = response.json()
+        
+        # Capture metrics
+        usage = data.get("usage", {})
+        m = {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_duration_ms": (end_time - start_time) * 1000,
+        }
+        # In non-streaming llama.cpp, we don't have eval_duration split easily 
+        # unless returned by API. We use total for now.
+        if m["total_duration_ms"] > 0:
+            m["tps"] = (m["completion_tokens"] / m["total_duration_ms"]) * 1000
+        
+        METRICS.set(m)
         return data["choices"][0]["message"]["content"]
 
 
