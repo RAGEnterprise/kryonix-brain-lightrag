@@ -100,9 +100,13 @@ async def _llama_cpp_generate(messages: list[dict[str, str]], **kwargs: Any) -> 
             "completion_tokens": usage.get("completion_tokens", 0),
             "total_duration_ms": (end_time - start_time) * 1000,
         }
-        # In non-streaming llama.cpp, we don't have eval_duration split easily 
-        # unless returned by API. We use total for now.
-        if m["total_duration_ms"] > 0:
+        # Use native timings if available for more accurate generation TPS
+        timings = data.get("timings", {})
+        if "predicted_ms" in timings:
+            m["eval_duration_ms"] = float(timings["predicted_ms"])
+            if m["eval_duration_ms"] > 0:
+                m["tps"] = float((m["completion_tokens"] / m["eval_duration_ms"]) * 1000)
+        elif m["total_duration_ms"] > 0:
             m["tps"] = float((m["completion_tokens"] / m["total_duration_ms"]) * 1000)
         
         # Final cast for all metrics to be safe for JSON
