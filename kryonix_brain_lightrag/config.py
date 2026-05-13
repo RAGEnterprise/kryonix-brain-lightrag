@@ -62,8 +62,10 @@ VAULT_EXCLUDE_DIRS = [
 ]
 
 # ── Provider ─────────────────────────────────────────────────────
-LLM_PROVIDER = os.getenv("LIGHTRAG_LLM_PROVIDER", "ollama")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+LLM_PROVIDER = os.getenv("KRYONIX_LLM_PROVIDER", os.getenv("LIGHTRAG_LLM_PROVIDER", "ollama"))
+OLLAMA_BASE_URL = os.getenv("KRYONIX_OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))
+LLAMA_CPP_BASE_URL = os.getenv("KRYONIX_LLAMA_CPP_URL", "http://127.0.0.1:11435")
+LLAMA_CPP_TIMEOUT = int(os.getenv("KRYONIX_LLAMA_CPP_TIMEOUT_SECONDS", "60"))
 
 # ── Language & Prompt ─────────────────────────────────────────────
 RESPONSE_LANGUAGE = os.getenv("RESPONSE_LANGUAGE", "pt-BR")
