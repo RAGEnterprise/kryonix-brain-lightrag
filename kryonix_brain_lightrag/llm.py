@@ -4,16 +4,25 @@ import os
 import re
 import logging
 import asyncio
-from typing import Any
+from typing import Any, AsyncGenerator
+from contextvars import ContextVar
+
+# Global Context for tracking the backend used in the current request
+USED_BACKEND = ContextVar("used_backend", default="unknown")
+PROVIDER_OVERRIDE = ContextVar("provider_override", default=None)
 
 import numpy as np
 from ollama import AsyncClient
 from lightrag.utils import wrap_embedding_func_with_attrs
 
 
+import httpx
 from . import config
 
 OLLAMA_BASE_URL = config.OLLAMA_BASE_URL
+LLAMA_CPP_BASE_URL = config.LLAMA_CPP_BASE_URL
+LLAMA_CPP_TIMEOUT = config.LLAMA_CPP_TIMEOUT
+LLM_PROVIDER = config.LLM_PROVIDER
 LIGHTRAG_LLM_MODEL = config.LLM_MODEL
 LIGHTRAG_EMBED_MODEL = config.EMBEDDING_MODEL
 PROFILE = config.PROFILE
@@ -25,6 +34,38 @@ def _client() -> AsyncClient:
 
 
 logger = logging.getLogger("lightrag.llm")
+
+async def _ollama_generate(messages: list[dict[str, str]], **kwargs: Any) -> str:
+    """Raw call to Ollama."""
+    response = await _client().chat(
+        model=LIGHTRAG_LLM_MODEL,
+        messages=messages,
+        options={
+            "num_ctx": 16384,
+            "temperature": kwargs.get("temperature", 0.1),
+            "num_predict": int(kwargs.get("num_predict", 1024)),
+        },
+        keep_alive="5m",
+    )
+    return _message_content(response)
+
+
+async def _llama_cpp_generate(messages: list[dict[str, str]], **kwargs: Any) -> str:
+    """Raw call to llama.cpp (OpenAI-compatible /v1/chat/completions)."""
+    url = f"{LLAMA_CPP_BASE_URL}/v1/chat/completions"
+    payload = {
+        "model": LIGHTRAG_LLM_MODEL,
+        "messages": messages,
+        "temperature": kwargs.get("temperature", 0.1),
+        "max_tokens": int(kwargs.get("num_predict", 1024)),
+    }
+    
+    async with httpx.AsyncClient(timeout=LLAMA_CPP_TIMEOUT) as client:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+
 
 def _message_content(response: Any) -> str:
     if isinstance(response, dict):
@@ -76,10 +117,11 @@ async def llm_func(
     prompt: str,
     system_prompt: str | None = None,
     history_messages: list[dict[str, str]] | None = None,
+    provider_override: str | None = None,
     **kwargs: Any,
 ) -> str:
     """
-    LightRAG LLM adapter with strict validation and retry logic.
+    LightRAG LLM adapter with strict validation, retry logic and provider routing.
     """
     max_retries = 2
     retry_count = 0
@@ -101,26 +143,46 @@ async def llm_func(
 
         messages.append({"role": "user", "content": current_prompt})
 
+        # Routing Logic
+        provider = (PROVIDER_OVERRIDE.get() or provider_override or LLM_PROVIDER).lower()
+        content = ""
+        used_backend = "unknown"
+        
         try:
-            response = await _client().chat(
-                model=LIGHTRAG_LLM_MODEL,
-                messages=messages,
-                options={
-                    "num_ctx": 16384,
-                    "temperature": 0.1 if retry_count == 0 else 0.05, # Reduce temp on retry
-                    "num_predict": int(kwargs.get("num_predict", 1024)),
-                },
-                keep_alive="5m",
-            )
+            temp = 0.1 if retry_count == 0 else 0.05
             
-            content = _message_content(response)
+            if provider == "llama_cpp":
+                try:
+                    content = await _llama_cpp_generate(messages, temperature=temp, **kwargs)
+                    used_backend = "llama_cpp"
+                except Exception as e:
+                    logger.warning(f"llama_cpp provider failed: {e}")
+                    raise # Let it be caught by the outer retry block or re-raised
             
+            elif provider == "auto":
+                try:
+                    content = await _llama_cpp_generate(messages, temperature=temp, **kwargs)
+                    used_backend = "llama_cpp"
+                except Exception as e:
+                    logger.warning(f"llama_cpp (auto) failed, falling back to ollama: {e}")
+                    content = await _ollama_generate(messages, temperature=temp, **kwargs)
+                    used_backend = "ollama (fallback)"
+            
+            else: # default: ollama
+                content = await _ollama_generate(messages, temperature=temp, **kwargs)
+                used_backend = "ollama"
+
+            if VERBOSE:
+                print(f"  [LLM] Backend: {used_backend}")
+
+            USED_BACKEND.set(used_backend)
+
             if not is_extraction:
                 return content
             
             if validate_extraction(content):
                 if retry_count > 0 and VERBOSE:
-                    print(f"  [LLM] Extração bem-sucedida na tentativa {retry_count}")
+                    print(f"  [LLM] Extração bem-sucedida na tentativa {retry_count} ({used_backend})")
                 return content
             
             # Validation failed
@@ -128,9 +190,7 @@ async def llm_func(
             if retry_count <= max_retries:
                 if VERBOSE:
                     print(f"  [LLM] Erro de formato detectado (tentativa {retry_count}/{max_retries+1}). Repetindo...")
-                    print(f"  [DEBUG] Saída bruta: {content[:200]}...")
                 
-                # Enhance prompt for retry
                 strict_instruction = (
                     "\n\nREGRA ESTRITA DE FORMATAÇÃO:\n"
                     "1. Use o delimitador <|#|> entre campos.\n"
@@ -143,15 +203,10 @@ async def llm_func(
             else:
                 if VERBOSE:
                     print(f"  [AVISO] A extração falhou após {max_retries} tentativas. Revertendo para saída parcial.")
-                    print(f"  [DEBUG] Saída final com falha: {content}")
-                
-                # Fallback: keep only entities if relations are broken? 
-                # LightRAG might handle partial lines, but it logs errors.
-                # We return the content anyway, but we've logged the failure.
                 return content
                 
         except Exception as e:
-            logger.error(f"LLM Error: {e}")
+            logger.error(f"LLM Error ({provider}): {e}")
             retry_count += 1
             if retry_count > max_retries:
                 raise

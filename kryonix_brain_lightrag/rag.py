@@ -616,26 +616,30 @@ def _build_ask_search_comparison_answer(sources: list[dict]) -> str:
     )
 
 
-async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False, explain: bool = False, intent: str = "ask") -> dict:
-    rag = await get_rag_async()
-    target_lang = lang or RESPONSE_LANGUAGE
-    query_meta = normalize_query_details(term)
-    normalized_term = query_meta["query_normalized"]
+async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False, explain: bool = False, intent: str = "ask", test_provider: str | None = None) -> dict:
+    from .llm import USED_BACKEND, PROVIDER_OVERRIDE
     
-    # 1. Query Strategy Planning
-    strategy = await analyze_query_strategy(normalized_term)
-    search_mode = mode if mode != "hybrid" else strategy["mode"]
-    hops = strategy["hops"]
-    top_k_chunks = strategy["top_k"]
-    
-    if verbose or explain:
-        console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
-    
-    # 2. Expand query semanticamente
-    expanded_query = await expand_query_semantically(normalized_term)
-    
-    # 3. RAG Pipeline com Grounding Avançado
+    token = PROVIDER_OVERRIDE.set(test_provider)
     try:
+        rag = await get_rag_async()
+        target_lang = lang or RESPONSE_LANGUAGE
+        query_meta = normalize_query_details(term)
+        normalized_term = query_meta["query_normalized"]
+        
+        # 1. Query Strategy Planning
+        strategy = await analyze_query_strategy(normalized_term)
+        search_mode = mode if mode != "hybrid" else strategy["mode"]
+        hops = strategy["hops"]
+        top_k_chunks = strategy["top_k"]
+        
+        if verbose or explain:
+            console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
+        
+        # 2. Expand query semanticamente
+        expanded_query = await expand_query_semantically(normalized_term)
+        
+        # 3. RAG Pipeline com Grounding Avançado
+        
         # Detectar se é uma pergunta sobre o pipeline do Kryonix (Garantindo que não afete outros temas)
         q_lower = normalized_term.lower()
         is_pipeline_query = (
@@ -702,6 +706,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 "answer": "Não encontrei grounding suficiente no índice atual para responder com segurança.",
                 "confidence": "None",
                 "sources": [],
+                "provider": USED_BACKEND.get(),
                 "grounding": build_grounding_metadata(
                     mode=search_mode,
                     strategy=strategy["strategy"],
@@ -744,6 +749,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 "confidence": "None",
                 "max_score": round(max_score, 3),
                 "sources": [],
+                "provider": USED_BACKEND.get(),
                 "grounding": grounding,
             }
 
@@ -841,7 +847,8 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             "grounding": grounding,
             "sources": sources,
             "mode": search_mode,
-            "strategy": strategy["strategy"]
+            "strategy": strategy["strategy"],
+            "provider": USED_BACKEND.get()
         }
         
         if explain:
@@ -871,6 +878,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             "answer": f"Ocorreu um erro técnico ao processar sua pergunta: {str(e)}",
             "confidence": "None",
             "sources": [],
+            "provider": USED_BACKEND.get(),
             "grounding": build_grounding_metadata(
                 mode=mode,
                 strategy="error",
@@ -878,6 +886,8 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 query_meta=normalize_query_details(term),
             ),
         }
+    finally:
+        PROVIDER_OVERRIDE.reset(token)
 
 async def get_query_context(term: str, mode: str = "hybrid") -> dict:
     """Retrieve raw context chunks that would be used for a query."""

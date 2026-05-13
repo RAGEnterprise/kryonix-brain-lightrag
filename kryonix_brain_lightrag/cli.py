@@ -330,6 +330,7 @@ async def cmd_search(args):
     verbose = getattr(args, "verbose", False)
     explain = getattr(args, "explain", False)
     top_k = getattr(args, "top", 5)
+    test_provider = getattr(args, "test_provider", None)
     
     # ── CAG Strategy Integration ──────────────────────────────────────────
     from . import cag
@@ -438,7 +439,8 @@ async def cmd_search(args):
         intent=intent,
         lang=lang, 
         verbose=verbose,
-        explain=explain
+        explain=explain,
+        test_provider=test_provider
     )
     
     # Handle output
@@ -1467,6 +1469,7 @@ def main():
         sp.add_argument("--cag-only", action="store_true", help="Force technical pack search (fast)")
         sp.add_argument("--rag-only", action="store_true", help="Force vault/history search (slow)")
         sp.add_argument("--top", type=int, default=5, help="Max sources to display")
+        sp.add_argument("--test-provider", help="Override LLM provider for this query (ollama/llama_cpp)")
         sp.set_defaults(func=cmd_search, mode=mode)
 
     # cache

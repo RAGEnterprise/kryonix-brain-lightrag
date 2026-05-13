@@ -100,7 +100,7 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
         SEARCH_COUNT.inc()
         
         request_id = str(uuid.uuid4())[:8]
-        logger.info(f"[{request_id}] Searching: {req.query} (mode={req.mode}, intent={req.intent}, lang={req.lang})")
+        logger.info(f"[{request_id}] Searching: {req.query} (mode={req.mode}, provider={req.test_provider or 'default'})")
         
         res = await rag_mod.query(
             req.query, 
@@ -109,7 +109,8 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
             lang=req.lang, 
             no_cache=req.no_cache,
             verbose=req.debug,
-            explain=req.explain
+            explain=req.explain,
+            test_provider=req.test_provider
         )
         
         latency = datetime.now().timestamp() - t0
@@ -126,6 +127,8 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
         res["grounding"]["max_score"] = res.get("max_score", 0.0)
         res["grounding"]["mode"] = req.mode
         res["grounding"]["intent"] = req.intent
+        res["grounding"]["provider"] = res.get("provider")
+        
         res["mode"] = req.mode
         res["intent"] = req.intent
         
