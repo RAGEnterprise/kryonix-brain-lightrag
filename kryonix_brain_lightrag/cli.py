@@ -325,6 +325,7 @@ async def cmd_brain_watch(args):
 
 async def cmd_search(args):
     mode = getattr(args, "mode", "hybrid")
+    intent = "ask" if getattr(args, "cmd", "search") == "ask" else "search"
     lang = getattr(args, "lang", None)
     verbose = getattr(args, "verbose", False)
     explain = getattr(args, "explain", False)
@@ -434,6 +435,7 @@ async def cmd_search(args):
     res = await rag_mod.query(
         query_to_rag, 
         mode=mode, 
+        intent=intent,
         lang=lang, 
         verbose=verbose,
         explain=explain
@@ -1060,6 +1062,22 @@ async def cmd_cag(args):
                 console.print(f"  [cyan]Tags:[/cyan]       {result.get('tag_count', 0)}")
                 console.print(f"  [cyan]Hash:[/cyan]       [dim]{result.get('hash', 'n/a')[:16]}[/dim]")
                 console.print(f"  [cyan]Path:[/cyan]       [dim]{cag_dir}[/dim]\n")
+        except FileNotFoundError:
+            payload = {
+                "status": "missing_manifest",
+                "message": "CAG manifest não encontrado.",
+                "manifest_path": str(cag_dir / "manifest.json"),
+                "recommended_commands": [
+                    "kryonix brain cag status",
+                    "kryonix brain cag build",
+                ],
+            }
+            if json_mode:
+                print(json.dumps(payload, indent=2))
+            else:
+                console.print(f"[bold yellow][WARN][/bold yellow] {payload['message']}")
+                console.print(f"[dim]Manifest esperado: {payload['manifest_path']}[/dim]")
+                console.print("[dim]Use 'kryonix brain cag build' to create a new pack.[/dim]\n")
         except Exception as e:
             if json_mode:
                 print(json.dumps({"status": "error", "message": str(e)}))
@@ -1191,11 +1209,22 @@ async def cmd_cag(args):
                         console.print(f"[italic]{indented}[/italic]")
 
         except FileNotFoundError:
+            payload = {
+                "status": "missing_manifest",
+                "message": "CAG manifest não encontrado. Reconstrua o pack CAG antes de usar cag ask/route.",
+                "manifest_path": str(cag_dir / "manifest.json"),
+                "recommended_commands": [
+                    "kryonix brain cag status",
+                    "kryonix brain cag build",
+                ],
+            }
             if json_mode:
-                print(json.dumps({"status": "error", "message": "CAG pack not found"}))
+                print(json.dumps(payload, indent=2))
             else:
-                console.print(f"[red][FAIL][/red] CAG pack not found at [bold]{cag_dir}[/bold]")
-                console.print("[dim]Please run: [bold]kryonix brain cag build[/bold] first.[/dim]")
+                console.print(f"[yellow][WARN][/yellow] {payload['message']}")
+                console.print(f"[dim]Manifest esperado: {payload['manifest_path']}[/dim]")
+                console.print("[dim]Use: [bold]kryonix brain cag status[/bold][/dim]")
+                console.print("[dim]Use: [bold]kryonix brain cag build[/bold][/dim]")
         except Exception as e:
             if json_mode:
                 print(json.dumps({"status": "error", "message": str(e)}))

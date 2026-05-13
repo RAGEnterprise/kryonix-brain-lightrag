@@ -46,6 +46,7 @@ async def metrics():
 class SearchRequest(BaseModel):
     query: str
     mode: str = "hybrid"
+    intent: str = "ask"
     lang: str = "pt-BR"
     no_cache: bool = False
     debug: bool = False
@@ -57,6 +58,8 @@ class SearchResponse(BaseModel):
     grounding: dict = {}
     sources: list = []
     warnings: list = []
+    mode: str | None = None
+    intent: str | None = None
 
 class IngestProposeRequest(BaseModel):
     content: str = Field(..., description="Conteúdo a ser ingerido no grafo LightRAG")
@@ -97,11 +100,12 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
         SEARCH_COUNT.inc()
         
         request_id = str(uuid.uuid4())[:8]
-        logger.info(f"[{request_id}] Searching: {req.query} (mode={req.mode}, lang={req.lang})")
+        logger.info(f"[{request_id}] Searching: {req.query} (mode={req.mode}, intent={req.intent}, lang={req.lang})")
         
         res = await rag_mod.query(
             req.query, 
             mode=req.mode, 
+            intent=req.intent,
             lang=req.lang, 
             no_cache=req.no_cache,
             verbose=req.debug,
@@ -117,8 +121,13 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
             
         res["grounding"]["trace_id"] = request_id
         res["grounding"]["latency_sec"] = round(latency, 3)
-        res["grounding"]["confidence"] = res.get("confidence", "Unknown")
+        res["grounding"]["confidence"] = res.get("confidence", res["grounding"].get("grounding_label", "Unknown"))
+        res["grounding"]["grounding_label"] = res["grounding"].get("grounding_label", res["grounding"]["confidence"])
         res["grounding"]["max_score"] = res.get("max_score", 0.0)
+        res["grounding"]["mode"] = req.mode
+        res["grounding"]["intent"] = req.intent
+        res["mode"] = req.mode
+        res["intent"] = req.intent
         
         return SearchResponse(**res)
     except Exception as e:
@@ -137,6 +146,22 @@ class GraphQueryRequest(BaseModel):
 class GraphIngestApplyRequest(BaseModel):
     manifest_id: str
 
+def _missing_manifest_payload(exc: FileNotFoundError) -> dict:
+    message = str(exc)
+    manifest_path = ""
+    match = re.search(r"No manifest found at (.+)$", message)
+    if match:
+        manifest_path = match.group(1)
+    return {
+        "status": "missing_manifest",
+        "message": "CAG manifest não encontrado. Reconstrua o pack CAG antes de usar cag ask/route.",
+        "manifest_path": manifest_path,
+        "recommended_commands": [
+            "kryonix brain cag status",
+            "kryonix brain cag build",
+        ],
+    }
+
 @app.post("/cag/ask")
 async def cag_ask(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
     """Executa uma pergunta CAG remota."""
@@ -144,6 +169,9 @@ async def cag_ask(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
     try:
         res = cag_mod.ask(query=req.query, top_k=req.top_k)
         return res
+    except FileNotFoundError as e:
+        logger.warning(f"Missing CAG manifest in remote cag ask: {e}")
+        raise HTTPException(status_code=404, detail=_missing_manifest_payload(e))
     except Exception as e:
         logger.error(f"Error in remote cag ask: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -155,6 +183,9 @@ async def cag_route(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
     try:
         res = cag_mod.route(query=req.query, top_k=req.top_k)
         return res
+    except FileNotFoundError as e:
+        logger.warning(f"Missing CAG manifest in remote cag route: {e}")
+        raise HTTPException(status_code=404, detail=_missing_manifest_payload(e))
     except Exception as e:
         logger.error(f"Error in remote cag route: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -166,6 +197,9 @@ async def cag_status(api_key: str = Depends(get_api_key)):
     try:
         res = cag_mod.status()
         return res
+    except FileNotFoundError as e:
+        logger.warning(f"Missing CAG manifest in remote cag status: {e}")
+        raise HTTPException(status_code=404, detail=_missing_manifest_payload(e))
     except Exception as e:
         logger.error(f"Error in remote cag status: {e}")
         raise HTTPException(status_code=500, detail=str(e))

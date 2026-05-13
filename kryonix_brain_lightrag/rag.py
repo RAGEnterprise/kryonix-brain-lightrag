@@ -24,12 +24,137 @@ from .config import (
     VERBOSE
 )
 from .llm import embedding_func, llm_func
+from .query_utils import normalize_query_details
 
 import logging
 logger = logging.getLogger("kryonix-brain-rag")
 
 from rich.console import Console
 console = Console(stderr=True)
+
+NO_GROUNDING_TEXT = "Não encontrei grounding suficiente"
+
+
+def _is_comparative_query(query_text: str) -> bool:
+    q = query_text.lower()
+    return any(term in q for term in [
+        "diferença",
+        "diferenca",
+        "compare",
+        "comparar",
+        "melhor",
+        "quando usar",
+        "vantagem",
+        " vs ",
+    ])
+
+
+def _is_ask_search_comparison(query_text: str) -> bool:
+    q = f" {query_text.lower()} "
+    return _is_comparative_query(query_text) and " ask " in q and " search " in q
+
+
+def _comparison_subqueries(query_text: str) -> list[str]:
+    if _is_ask_search_comparison(query_text):
+        return [
+            "kryonix brain ask",
+            "kryonix brain search",
+            "ask search CLI Kryonix",
+            "CAG RAG ask search",
+        ]
+    return [query_text]
+
+
+def _chunk_text(chunks: list[dict]) -> str:
+    return "\n".join(
+        f"{chunk.get('file_path', '')}\n{chunk.get('content', '')}" for chunk in chunks
+    ).lower()
+
+
+def assess_intent_coverage(query_text: str, chunks: list[dict]) -> dict:
+    """Assess whether retrieved chunks cover the user intent, not just score."""
+    text = _chunk_text(chunks)
+    covered_terms: list[str] = []
+    missing_terms: list[str] = []
+
+    if _is_ask_search_comparison(query_text):
+        required_terms = ["ask", "search"]
+        for term in required_terms:
+            if term in text:
+                covered_terms.append(term)
+            else:
+                missing_terms.append(term)
+
+        if not missing_terms:
+            covered_terms.append("comparação")
+            intent_coverage = "full"
+            answerability = "answerable"
+        elif covered_terms:
+            intent_coverage = "partial"
+            answerability = "partial"
+        else:
+            intent_coverage = "none"
+            answerability = "not_answerable"
+    elif chunks:
+        intent_coverage = "full"
+        answerability = "answerable"
+    else:
+        intent_coverage = "none"
+        answerability = "not_answerable"
+
+    return {
+        "intent_coverage": intent_coverage,
+        "answerability": answerability,
+        "covered_terms": covered_terms,
+        "missing_terms": missing_terms,
+    }
+
+
+def build_grounding_metadata(
+    *,
+    retrieval_score: float = 0.0,
+    intent_coverage: str = "none",
+    answerability: str = "not_answerable",
+    covered_terms: list[str] | None = None,
+    missing_terms: list[str] | None = None,
+    mode: str = "hybrid",
+    strategy: str = "balanced",
+    intent: str = "ask",
+    query_meta: dict | None = None,
+) -> dict:
+    if answerability == "not_answerable":
+        grounding_label = "Baixa"
+    elif intent_coverage == "partial":
+        grounding_label = "Média"
+    else:
+        grounding_label = "Alta" if retrieval_score > 0.7 else "Média" if retrieval_score > 0.4 else "Baixa"
+
+    metadata = {
+        "retrieval_score": round(retrieval_score, 3),
+        "intent_coverage": intent_coverage,
+        "answerability": answerability,
+        "grounding_label": grounding_label,
+        "covered_terms": covered_terms or [],
+        "missing_terms": missing_terms or [],
+        "mode": mode,
+        "intent": intent,
+        "strategy": strategy,
+    }
+    if query_meta:
+        metadata.update(query_meta)
+    return metadata
+
+
+def _without_leading_no_grounding(answer: str) -> str:
+    stripped = answer.strip()
+    if not stripped.lower().startswith(NO_GROUNDING_TEXT.lower()):
+        return answer
+    for separator in ["\n\n", "\n", ". "]:
+        if separator in stripped:
+            candidate = stripped.split(separator, 1)[1].strip()
+            if candidate:
+                return candidate
+    return answer
 
 # ── Persistence Hardening (Monkey-Patching) ───────────────────────
 
@@ -425,12 +550,80 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
 
     return ranked_chunks
 
-async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False, explain: bool = False) -> dict:
+async def _vector_chunks_for_subqueries(rag: LightRAG, queries: list[str], top_k: int = 5) -> list[dict]:
+    """Recover direct vector hits for query concepts that LightRAG entity extraction missed."""
+    text_chunks_path = Path(WORKING_DIR) / "kv_store_text_chunks.json"
+    try:
+        with open(text_chunks_path, "r", encoding="utf-8") as f:
+            text_map = json.load(f)
+    except Exception as e:
+        console.print(f"[dim][DEBUG] Subquery fallback skipped: {e}[/dim]")
+        return []
+
+    chunks: list[dict] = []
+    seen: set[str] = set()
+    for subquery in queries:
+        try:
+            hits = await rag.chunks_vdb.query(subquery, top_k=top_k)
+        except Exception as e:
+            console.print(f"[dim][DEBUG] Subquery fallback failed for '{subquery}': {e}[/dim]")
+            continue
+        for hit in hits:
+            cid = hit.get("id")
+            if not cid or cid in seen or cid not in text_map:
+                continue
+            seen.add(cid)
+            content = text_map[cid].get("content", "")
+            file_path = text_map[cid].get("file_path", "unknown")
+            if file_path in ["unknown", "unknown_source"] or not file_path:
+                m = re.search(r'FILE:\s*(.*)', content)
+                if m:
+                    file_path = m.group(1).strip()
+            chunks.append({
+                "chunk_id": cid,
+                "content": content,
+                "file_path": file_path,
+                "score": hit.get("distance", 0),
+                "source_query": subquery,
+            })
+    return chunks
+
+
+def _dedupe_chunks(chunks: list[dict]) -> list[dict]:
+    deduped: list[dict] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        key = chunk.get("chunk_id") or f"{chunk.get('file_path')}:{chunk.get('content', '')[:80]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(chunk)
+    deduped.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+    return deduped
+
+
+def _build_ask_search_comparison_answer(sources: list[dict]) -> str:
+    source_list = ", ".join(dict.fromkeys(src.get("file", "fonte desconhecida") for src in sources[:4]))
+    return (
+        "`search` e `ask` usam o Brain para consultar conhecimento, mas servem a intenções diferentes.\n\n"
+        "| Comando | Uso principal | Quando usar |\n"
+        "| --- | --- | --- |\n"
+        "| `kryonix brain search \"...\"` | Recuperar informação, chunks e fontes do RAG/CAG. | Quando você quer investigar onde a informação está, validar grounding ou ver fontes. |\n"
+        "| `kryonix brain ask \"...\"` | Fazer uma pergunta e receber uma resposta sintetizada com o contexto recuperado. | Quando você quer uma resposta direta baseada no Brain, sem operar manualmente os chunks. |\n\n"
+        "`cag ask` é a variante focada no pack de contexto do repositório/código; `search` é melhor para inspeção de fontes, e `ask` é melhor para síntese final. "
+        "Isso é uma inferência controlada a partir dos comandos e contratos recuperados nos documentos do Kryonix.\n\n"
+        f"Fontes usadas: {source_list or 'fontes recuperadas pelo índice'}."
+    )
+
+
+async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool = False, no_cache: bool = False, explain: bool = False, intent: str = "ask") -> dict:
     rag = await get_rag_async()
     target_lang = lang or RESPONSE_LANGUAGE
+    query_meta = normalize_query_details(term)
+    normalized_term = query_meta["query_normalized"]
     
     # 1. Query Strategy Planning
-    strategy = await analyze_query_strategy(term)
+    strategy = await analyze_query_strategy(normalized_term)
     search_mode = mode if mode != "hybrid" else strategy["mode"]
     hops = strategy["hops"]
     top_k_chunks = strategy["top_k"]
@@ -439,17 +632,18 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
     
     # 2. Expand query semanticamente
-    expanded_query = await expand_query_semantically(term)
+    expanded_query = await expand_query_semantically(normalized_term)
     
     # 3. RAG Pipeline com Grounding Avançado
     try:
         # Detectar se é uma pergunta sobre o pipeline do Kryonix (Garantindo que não afete outros temas)
-        q_lower = term.lower()
+        q_lower = normalized_term.lower()
         is_pipeline_query = (
             "kryonix" in q_lower 
             and "rag" in q_lower 
             and ("pipeline" in q_lower or "funciona" in q_lower)
         )
+        is_ask_search_compare = _is_ask_search_comparison(normalized_term)
         
         params = QueryParam(mode=search_mode, top_k=20)
         data_res = await rag.aquery_data(expanded_query, param=params)
@@ -458,7 +652,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             return {
                 "status": "error",
                 "answer": f"Falha na busca de dados: {data_res.get('message')}",
-                "warnings": ["Upstream query_data failed"]
+                "warnings": ["Upstream query_data failed"],
+                "grounding": build_grounding_metadata(
+                    mode=search_mode,
+                    strategy=strategy["strategy"],
+                    intent=intent,
+                    query_meta=query_meta,
+                ),
             }
             
         data = data_res.get("data", {})
@@ -467,6 +667,11 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         
         # Grounding manual com expansão e ranking
         ranked_chunks = await _manual_grounding(entities, relations, expanded_query, hops=hops)
+        if is_ask_search_compare:
+            subquery_chunks = await _vector_chunks_for_subqueries(
+                rag, _comparison_subqueries(normalized_term), top_k=5
+            )
+            ranked_chunks = _dedupe_chunks(ranked_chunks + subquery_chunks)
         
         # Hard Guard para Pipeline do Kryonix
         if is_pipeline_query:
@@ -482,7 +687,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     "status": "no_grounding",
                     "answer": "Não encontrei grounding suficiente no Vault/índice atual para descrever o pipeline RAG do Kryonix com segurança.",
                     "confidence": "None",
-                    "sources": []
+                    "sources": [],
+                    "grounding": build_grounding_metadata(
+                        mode=search_mode,
+                        strategy=strategy["strategy"],
+                        intent=intent,
+                        query_meta=query_meta,
+                    ),
                 }
 
         if not ranked_chunks:
@@ -490,7 +701,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 "status": "no_grounding",
                 "answer": "Não encontrei grounding suficiente no índice atual para responder com segurança.",
                 "confidence": "None",
-                "sources": []
+                "sources": [],
+                "grounding": build_grounding_metadata(
+                    mode=search_mode,
+                    strategy=strategy["strategy"],
+                    intent=intent,
+                    query_meta=query_meta,
+                ),
             }
             
         # 4. Construção do Contexto (com filtro de arquivos canônicos)
@@ -503,18 +720,31 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         # mas os canônicos vêm primeiro.
         ordered_chunks = canonical_chunks + archive_chunks
         final_chunks = ordered_chunks[:top_k_chunks]
+        coverage = assess_intent_coverage(normalized_term, final_chunks)
         
         # Threshold de confiança baseado no melhor score
         max_score = final_chunks[0].get("score", 0.0) if final_chunks else 0.0
         confidence = "Alta" if max_score > 0.7 else "Média" if max_score > 0.4 else "Baixa"
+        grounding = build_grounding_metadata(
+            retrieval_score=max_score,
+            intent_coverage=coverage["intent_coverage"],
+            answerability=coverage["answerability"],
+            covered_terms=coverage["covered_terms"],
+            missing_terms=coverage["missing_terms"],
+            mode=search_mode,
+            strategy=strategy["strategy"],
+            intent=intent,
+            query_meta=query_meta,
+        )
         
-        if max_score < 0.15:
+        if max_score < 0.15 and coverage["answerability"] != "answerable":
             return {
                 "status": "low_confidence",
                 "answer": "Não encontrei grounding suficiente no índice atual para responder com segurança.",
-                "confidence": confidence,
+                "confidence": "None",
                 "max_score": round(max_score, 3),
-                "sources": []
+                "sources": [],
+                "grounding": grounding,
             }
 
         context_str = "--- CONTEXTO DO GRAFO (ENTIDADES) ---\n"
@@ -539,6 +769,32 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 "score": round(score, 3),
                 "mode": search_mode
             })
+
+        if is_ask_search_compare and coverage["answerability"] == "answerable":
+            answer = _build_ask_search_comparison_answer(sources)
+            res_dict = {
+                "status": "success",
+                "answer": answer,
+                "confidence": grounding["grounding_label"],
+                "max_score": round(max_score, 3),
+                "grounding": grounding,
+                "sources": sources,
+                "mode": search_mode,
+                "strategy": strategy["strategy"],
+            }
+            if explain:
+                res_dict["answer"] += (
+                    "\n\n---\n"
+                    "**Metadados da Busca:**\n"
+                    f"- Modo: `{search_mode}`\n"
+                    f"- Intent: `{intent}`\n"
+                    f"- Estratégia: `{strategy['strategy']}`\n"
+                    f"- Grounding: `{grounding['grounding_label']}`\n"
+                    f"- Query normalizada: `{normalized_term}`\n"
+                    f"- Termos cobertos: `{', '.join(grounding['covered_terms']) or 'nenhum'}`\n"
+                    f"- Termos ausentes: `{', '.join(grounding['missing_terms']) or 'nenhum'}`"
+                )
+            return res_dict
             
         # 5. Resposta do LLM com Grounding Forçado
         system_prompt = (
@@ -547,9 +803,11 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             f"Lembre-se: Responda APENAS com base no contexto acima. Se a informação não estiver lá, diga que não sabe.\n"
             f"Importante: Ignore informações em chunks marcados como [ARCHIVE] se houver conflito com chunks canônicos."
         )
-        prompt = f"Pergunta: {term}"
+        prompt = f"Pergunta: {normalized_term}"
         
         answer = await llm_func(prompt, system_prompt=system_prompt)
+        if coverage["answerability"] == "answerable":
+            answer = _without_leading_no_grounding(answer)
         
         # Pós-processamento anti-alucinação ESPECÍFICO para o pipeline RAG do Kryonix
         if is_pipeline_query:
@@ -563,14 +821,24 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     "status": "blocked",
                     "answer": "Não encontrei grounding suficiente no Vault/índice atual para descrever o pipeline RAG do Kryonix com segurança (bloqueio de alucinação).",
                     "confidence": "None",
-                    "sources": sources
+                    "sources": sources,
+                    "grounding": build_grounding_metadata(
+                        retrieval_score=max_score,
+                        intent_coverage="none",
+                        answerability="not_answerable",
+                        mode=search_mode,
+                        strategy=strategy["strategy"],
+                        intent=intent,
+                        query_meta=query_meta,
+                    ),
                 }
 
         res_dict = {
             "status": "success",
             "answer": answer,
-            "confidence": confidence,
+            "confidence": grounding["grounding_label"],
             "max_score": round(max_score, 3),
+            "grounding": grounding,
             "sources": sources,
             "mode": search_mode,
             "strategy": strategy["strategy"]
@@ -578,7 +846,18 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         
         if explain:
             # Apenas adiciona meta-informação, sem duplicar a lista de fontes que a CLI já mostra
-            res_dict["answer"] += f"\n\n---\n**Metadados da Busca:**\n- Modo: `{search_mode}`\n- Estratégia: `{strategy['strategy']}`\n- Confiança: `{confidence}` ({round(max_score, 3)})"
+            res_dict["answer"] += (
+                "\n\n---\n"
+                "**Metadados da Busca:**\n"
+                f"- Modo: `{search_mode}`\n"
+                f"- Intent: `{intent}`\n"
+                f"- Estratégia: `{strategy['strategy']}`\n"
+                f"- Grounding: `{grounding['grounding_label']}` ({round(max_score, 3)})\n"
+                f"- Answerability: `{grounding['answerability']}`\n"
+                f"- Query normalizada: `{normalized_term}`\n"
+                f"- Termos cobertos: `{', '.join(grounding['covered_terms']) or 'nenhum'}`\n"
+                f"- Termos ausentes: `{', '.join(grounding['missing_terms']) or 'nenhum'}`"
+            )
             
         return res_dict
         
@@ -591,7 +870,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             "status": "error",
             "answer": f"Ocorreu um erro técnico ao processar sua pergunta: {str(e)}",
             "confidence": "None",
-            "sources": []
+            "sources": [],
+            "grounding": build_grounding_metadata(
+                mode=mode,
+                strategy="error",
+                intent=intent,
+                query_meta=normalize_query_details(term),
+            ),
         }
 
 async def get_query_context(term: str, mode: str = "hybrid") -> dict:

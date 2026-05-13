@@ -1,5 +1,8 @@
 import pytest
-from kryonix_brain_lightrag.query_utils import normalize_query_for_retrieval
+from kryonix_brain_lightrag.query_utils import (
+    normalize_query_details,
+    normalize_query_for_retrieval,
+)
 
 def test_normalize_prefixes():
     assert normalize_query_for_retrieval("Responda em português: hyprland") == "hyprland"
@@ -17,3 +20,15 @@ def test_normalize_no_prefix():
 
 def test_normalize_multiple_whitespace():
     assert normalize_query_for_retrieval("Responda em português:    hyprland") == "hyprland"
+
+
+def test_normalize_known_ptbr_typos():
+    details = normalize_query_details("qual diferena tem entre o ask e seaarch")
+    assert details["query_original"] == "qual diferena tem entre o ask e seaarch"
+    assert details["query_normalized"] == "qual diferença tem entre o ask e search"
+    assert {"from": "diferena", "to": "diferença", "reason": "known_typo"} in details["corrections_applied"]
+    assert {"from": "seaarch", "to": "search", "reason": "known_typo"} in details["corrections_applied"]
+
+
+def test_normalize_search_and_ask_variants():
+    assert normalize_query_for_retrieval("seach serach askk difereça") == "search search ask diferença"
