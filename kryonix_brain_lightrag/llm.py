@@ -66,7 +66,10 @@ async def _ollama_generate(messages: list[dict[str, str]], **kwargs: Any) -> str
 
     # Calculate TPS (Tokens Per Second)
     if m.get("eval_duration_ms", 0) > 0:
-        m["tps"] = (m["completion_tokens"] / m["eval_duration_ms"]) * 1000
+        m["tps"] = float((m["completion_tokens"] / m["eval_duration_ms"]) * 1000)
+    
+    # Final cast for all metrics to be safe for JSON
+    m = {k: (float(v) if isinstance(v, (float, np.floating)) else int(v) if isinstance(v, (int, np.integer)) else v) for k, v in m.items()}
     
     METRICS.set(m)
     return _message_content(response)
@@ -100,7 +103,10 @@ async def _llama_cpp_generate(messages: list[dict[str, str]], **kwargs: Any) -> 
         # In non-streaming llama.cpp, we don't have eval_duration split easily 
         # unless returned by API. We use total for now.
         if m["total_duration_ms"] > 0:
-            m["tps"] = (m["completion_tokens"] / m["total_duration_ms"]) * 1000
+            m["tps"] = float((m["completion_tokens"] / m["total_duration_ms"]) * 1000)
+        
+        # Final cast for all metrics to be safe for JSON
+        m = {k: (float(v) if isinstance(v, (float, np.floating)) else int(v) if isinstance(v, (int, np.integer)) else v) for k, v in m.items()}
         
         METRICS.set(m)
         return data["choices"][0]["message"]["content"]

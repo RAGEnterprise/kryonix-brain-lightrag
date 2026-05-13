@@ -542,7 +542,7 @@ async def _manual_grounding(entities: list[dict], relations: list[dict], query_t
                         "chunk_id": cid,
                         "content": content,
                         "file_path": file_path,
-                        "score": h.get("distance", 0)
+                        "score": float(h.get("distance", 0))
                     })
             console.print(f"[dim][DEBUG] Vector fallback: {len(ranked_chunks)} chunks encontrados[/dim]")
         except Exception as e:
