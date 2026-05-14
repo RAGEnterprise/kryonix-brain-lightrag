@@ -15,12 +15,35 @@ _LANGUAGE_PREFIXES = [
 ]
 
 _KNOWN_TYPO_REPLACEMENTS = [
-    (r"\bseaarch\b", "search"),
+    # Verbs and Actions
+    (r"\bsea+rch\b", "search"),
     (r"\bseach\b", "search"),
     (r"\bserach\b", "search"),
-    (r"\baskk\b", "ask"),
+    (r"\bask+\b", "ask"),
+    (r"\bas k\b", "ask"),
+    
+    # Technical Terms - Kryonix & Infra
+    (r"\bnix[\s\-]?os\b", "NixOS"),
+    (r"\bpkgs?\b", "package"),  # Note: logic might need adjustment if distinguishing singular/plural
+    
+    # Technical Terms - AI & RAG
+    (r"\bol+ama\b", "Ollama"),
+    (r"\bol+ma\b", "Ollama"),
+    (r"\bllama[\s\-]?cpp\b", "llama.cpp"),
+    (r"\b(light|ligth)[\s\-]?rag\b", "LightRAG"),
+    (r"\braglight\b", "LightRAG"),
+    (r"\bgraph[\s\-]?rag\b", "GraphRAG"),
+    (r"\bcag\b", "CAG"),
+    (r"\brag\b", "RAG"),
+    (r"\bneo[\s\-]?4j\b", "Neo4j"),
+    
+    # Portuguese - Common Typos/Missing Accents
+    (r"\bdiferen[cç]a\b", "diferença"),
     (r"\bdiferena\b", "diferença"),
-    (r"\bdifereça\b", "diferença"),
+    (r"\bcompara[cç][aã]o\b", "comparação"),
+    (r"\bcomparao\b", "comparação"),
+    (r"\bexplica[cç][aã]o\b", "explicação"),
+    (r"\bexplicaao\b", "explicação"),
 ]
 
 
