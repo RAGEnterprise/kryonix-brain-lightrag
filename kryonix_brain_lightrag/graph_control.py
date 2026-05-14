@@ -282,7 +282,9 @@ def _collect_import_edges(repo_root: Path) -> tuple[list[dict[str, Any]], list[d
 
 def _collect_registry_v2(repo_root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     try:
-        output = subprocess.check_output(["kryonix", "commands", "--json"], encoding="utf-8", stderr=subprocess.PIPE)
+        env = os.environ.copy()
+        env["PATH"] = f"/run/current-system/sw/bin:{env.get('PATH', '')}"
+        output = subprocess.check_output(["/run/current-system/sw/bin/kryonix", "commands", "--json"], encoding="utf-8", stderr=subprocess.PIPE, env=env)
         data = json.loads(output)
     except Exception:
         # Fallback para execução direta via shell se 'kryonix' não estiver no path
@@ -290,7 +292,9 @@ def _collect_registry_v2(repo_root: Path) -> tuple[list[dict[str, Any]], list[di
             main_sh = repo_root / "packages/kryonix-cli/main.sh"
             if not main_sh.exists():
                 return [], []
-            output = subprocess.check_output(["bash", str(main_sh), "commands", "--json"], encoding="utf-8")
+            env = os.environ.copy()
+            env["PATH"] = f"/run/current-system/sw/bin:{env.get('PATH', '')}"
+            output = subprocess.check_output(["/run/current-system/sw/bin/bash", str(main_sh), "commands", "--json"], encoding="utf-8", env=env)
             data = json.loads(output)
         except Exception:
             return [], []
