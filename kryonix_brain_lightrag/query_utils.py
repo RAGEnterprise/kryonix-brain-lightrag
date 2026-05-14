@@ -39,6 +39,7 @@ _KNOWN_TYPO_REPLACEMENTS = [
     
     # Portuguese - Common Typos/Missing Accents
     (r"\bdiferen[cç]a\b", "diferença"),
+    (r"\bdifere[cç]a\b", "diferença"),
     (r"\bdiferena\b", "diferença"),
     (r"\bcompara[cç][aã]o\b", "comparação"),
     (r"\bcomparao\b", "comparação"),

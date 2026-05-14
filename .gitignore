@@ -8,6 +8,3 @@ __pycache__/
 target/
 crates/*/target/
 
-# Tests
-tests/
-

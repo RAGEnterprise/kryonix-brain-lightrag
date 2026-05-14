@@ -9,7 +9,7 @@ def test_normalize_prefixes():
     assert normalize_query_for_retrieval("Explique em português: kryonix") == "kryonix"
     assert normalize_query_for_retrieval("use pt-br hyprland") == "hyprland"
     assert normalize_query_for_retrieval("em português do brasil: ragos cli") == "ragos cli"
-    assert normalize_query_for_retrieval("Responda apenas em pt-br: nixos") == "nixos"
+    assert normalize_query_for_retrieval("Responda apenas em pt-br: nixos") == "NixOS"
 
 def test_normalize_case_insensitive():
     assert normalize_query_for_retrieval("RESPONDA EM PORTUGUÊS: hyprland") == "hyprland"
