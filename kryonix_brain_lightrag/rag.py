@@ -805,6 +805,21 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 )
             return res_dict
             
+        if intent == "search":
+            return {
+                "status": "success",
+                "answer": f"Evidências localizadas: {len(final_chunks)} chunks em {len(set(c['file_path'] for c in final_chunks))} arquivos.",
+                "confidence": grounding["grounding_label"],
+                "max_score": round(max_score, 3),
+                "generation_skipped": True,
+                "provider_used": None,
+                "tps": None,
+                "grounding": grounding,
+                "sources": sources,
+                "mode": search_mode,
+                "strategy": strategy["strategy"],
+            }
+
         # 5. Resposta do LLM com Grounding Forçado
         system_prompt = (
             f"{ANSWER_SYSTEM_PROMPT}\n\n"
@@ -847,6 +862,9 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             "answer": answer,
             "confidence": grounding["grounding_label"],
             "max_score": round(max_score, 3),
+            "generation_skipped": False,
+            "provider_used": USED_BACKEND.get(),
+            "tps": METRICS.get().get("tps"),
             "grounding": grounding,
             "sources": sources,
             "mode": search_mode,

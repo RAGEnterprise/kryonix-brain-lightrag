@@ -58,6 +58,9 @@ class SearchResponse(BaseModel):
     answer: str
     grounding: dict = {}
     sources: list = []
+    generation_skipped: bool = False
+    provider_used: str | None = None
+    tps: float | None = None
     warnings: list = []
     mode: str | None = None
     intent: str | None = None
@@ -128,10 +131,14 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
         res["grounding"]["max_score"] = res.get("max_score", 0.0)
         res["grounding"]["mode"] = req.mode
         res["grounding"]["intent"] = req.intent
-        res["grounding"]["provider"] = res.get("provider")
+        res["grounding"]["provider"] = res.get("provider_used")
+        res["grounding"]["generation_skipped"] = res.get("generation_skipped", False)
         
         res["mode"] = req.mode
         res["intent"] = req.intent
+        res["generation_skipped"] = res.get("generation_skipped", False)
+        res["provider_used"] = res.get("provider_used")
+        res["tps"] = res.get("tps")
         
         return SearchResponse(**res)
     except Exception as e:
