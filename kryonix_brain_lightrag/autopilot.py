@@ -221,62 +221,171 @@ async def dry_run() -> dict[str, Any]:
     }
 
 
-async def apply(proposal_id: str) -> dict[str, Any]:
-    """Apply approved proposal with strict safety guardrails."""
+async def approve(proposal_id: str) -> dict[str, Any]:
+    """Approve a proposal for future application."""
     path = _proposals_dir() / f"{proposal_id}.json"
     if not path.exists():
-        raise FileNotFoundError(f"Proposta não encontrada: {proposal_id}")
+        _log_audit("approve", "error", {"proposal_id": proposal_id, "reason": "not found"})
+        return {"status": "error", "message": f"Proposta não encontrada: {proposal_id}"}
 
     proposal = json.loads(path.read_text(encoding="utf-8"))
     if proposal.get("applied"):
-        return {"status": "already_applied", "proposal_id": proposal_id}
+        return {"status": "error", "message": "Proposta já foi aplicada e não pode ser aprovada novamente."}
 
+    proposal["approved"] = True
+    proposal["approved_at"] = datetime.now(timezone.utc).isoformat()
+    path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    _log_audit("approve", "success", {"proposal_id": proposal_id})
+    return {
+        "status": "approved",
+        "proposal_id": proposal_id,
+        "approved": True,
+        "message": f"Proposta {proposal_id} aprovada com sucesso."
+    }
+
+
+async def apply(proposal_id: str) -> dict[str, Any]:
+    """Apply approved proposal with strict authorization and simulation (Issue #53)."""
+    # 1. Validation gated checks
+    if not proposal_id:
+        _log_audit("apply", "blocked", {"reason": "missing proposal id"})
+        return {"status": "blocked", "reason": "missing proposal id", "will_write": False}
+
+    path = _proposals_dir() / f"{proposal_id}.json"
+    if not path.exists():
+        _log_audit("apply", "blocked", {"proposal_id": proposal_id, "reason": "proposal not found"})
+        return {"status": "blocked", "reason": "proposal not found", "proposal_id": proposal_id, "will_write": False}
+
+    try:
+        proposal = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        _log_audit("apply", "blocked", {"proposal_id": proposal_id, "reason": f"invalid json: {e}"})
+        return {"status": "blocked", "reason": f"invalid json: {e}", "will_write": False}
+
+    # 2. Applied check
+    if proposal.get("applied"):
+        return {"status": "already_applied", "proposal_id": proposal_id, "will_write": False}
+
+    # 3. Approval check
+    if not proposal.get("approved"):
+        _log_audit("apply", "blocked", {"proposal_id": proposal_id, "reason": "proposal is not approved"})
+        return {
+            "status": "blocked",
+            "reason": "proposal is not approved",
+            "proposal_id": proposal_id,
+            "requires_approval": True,
+            "will_write": False,
+            "help": f"Use 'kryonix brain autopilot approve --id {proposal_id}' first."
+        }
+
+    # 4. Critical Risk check
     risk = proposal.get("overall_risk_level", "low")
     if risk == "critical":
-        raise RuntimeError("Propostas de risco CRITICAL requerem intervenção manual direta e não podem ser aplicadas pelo Autopilot.")
+        _log_audit("apply", "blocked", {"proposal_id": proposal_id, "reason": "risk_level critical blocked"})
+        return {
+            "status": "blocked",
+            "reason": "proposals with risk_level 'critical' are always blocked for Autopilot",
+            "proposal_id": proposal_id,
+            "will_write": False
+        }
 
-    # Check host constraint for graph/neo4j write actions
-    has_graph_action = any(a.get("domain") == "graph" or a.get("requires_host") == "glacier" for a in proposal.get("actions", []))
-    if has_graph_action:
-        hostname = socket.gethostname().lower()
-        if hostname != "glacier" and not os.getenv("KRYONIX_AUTOPILOT_IGNORE_HOST"):
-            raise RuntimeError("Operações de escrita no Neo4j/Knowledge Graph devem ser executadas exclusivamente no host Glacier.")
+    # 5. Load Registry for command validation
+    registry_commands = {}
+    try:
+        repo_root = Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
+        env = os.environ.copy()
+        env["PATH"] = f"/run/current-system/sw/bin:{env.get('PATH', '')}"
+        
+        kryonix_bin = "/run/current-system/sw/bin/kryonix"
+        if not os.path.exists(kryonix_bin):
+            main_sh = repo_root / "packages/kryonix-cli/main.sh"
+            if main_sh.exists():
+                output = subprocess.check_output(["/run/current-system/sw/bin/bash", str(main_sh), "commands", "--json"], encoding="utf-8", env=env)
+            else:
+                raise RuntimeError("Kryonix CLI not found")
+        else:
+            output = subprocess.check_output([kryonix_bin, "commands", "--json"], encoding="utf-8", env=env, stderr=subprocess.PIPE)
+        
+        reg_data = json.loads(output)
+        for cmd in reg_data.get("commands", []):
+            full_name = cmd["name"]
+            if cmd.get("subcommand"):
+                full_name += f" {cmd['subcommand']}"
+            registry_commands[full_name] = cmd
+    except Exception as e:
+        _log_audit("apply", "error", {"proposal_id": proposal_id, "error": f"registry load fail: {e}"})
+        return {"status": "error", "reason": f"failed to load command registry: {e}", "will_write": False}
 
-    results = []
+    # 6. Guardrail validation loop
+    hostname = socket.gethostname().lower()
+    validation_errors = []
+    simulation_plan = []
+    destructive_terms = ["DELETE", "DROP", "REMOVE", "DETACH DELETE", "TRUNCATE"]
+
     for act in proposal.get("actions", []):
         act_name = act.get("action_name")
         domain = act.get("domain")
+        req_host = act.get("requires_host", "any")
 
-        if domain == "graph" and act_name == "ingest_registry_v2":
-            from kryonix_brain_lightrag import graph_control
-            try:
-                # We build manifest and apply it
-                manifest = graph_control.build_manifest()
-                graph_control.save_manifest(manifest)
-                res = graph_control.apply_manifest(manifest["manifest_id"])
-                results.append({"action": act_name, "status": "applied", "details": res})
-            except Exception as e:
-                results.append({"action": act_name, "status": "error", "error": str(e)})
-        else:
-            # Subprocess execution for CLI commands
-            for cmd_str in act.get("proposed_actions", []):
-                try:
-                    cmd_parts = cmd_str.split()
-                    proc = subprocess.run(cmd_parts, capture_output=True, text=True, check=True)
-                    results.append({"command": cmd_str, "status": "success", "stdout": proc.stdout[:200]})
-                except subprocess.CalledProcessError as e:
-                    results.append({"command": cmd_str, "status": "error", "stderr": e.stderr})
+        # Guardrail: Graph/RAG/CAG/LightRAG write actions must target glacier
+        if domain in ("graph", "rag", "cag", "lightrag"):
+            if any(kw in act_name for kw in ("repair", "build", "ingest", "clean", "sync")):
+                if req_host == "any":
+                    req_host = "glacier"
 
-    proposal["applied"] = True
-    proposal["applied_at"] = datetime.now(timezone.utc).isoformat()
-    proposal["results"] = results
-    path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Host constraint check
+        if req_host == "glacier" and hostname != "glacier":
+            validation_errors.append(f"Ação '{act_name}' requer host 'glacier' mas o host atual é '{hostname}'.")
 
-    _log_audit("apply", "applied", {"proposal_id": proposal_id, "results": results})
+        # Commands validation
+        for cmd_str in act.get("proposed_actions", []):
+            # Destructive block
+            if any(term in cmd_str.upper() for term in destructive_terms):
+                validation_errors.append(f"Comando '{cmd_str}' bloqueado por ser destrutivo.")
+
+            # Registry existence check
+            clean_cmd = cmd_str
+            if cmd_str.startswith("kryonix "):
+                clean_cmd = cmd_str[len("kryonix "):].strip()
+            
+            found = False
+            for reg_name in registry_commands:
+                if clean_cmd.startswith(reg_name):
+                    found = True
+                    break
+            if not found:
+                validation_errors.append(f"Comando '{cmd_str}' não consta no Registry v2.")
+
+        simulation_plan.append({
+            "action": act_name,
+            "domain": domain,
+            "commands": act.get("proposed_actions", []),
+            "requires_host": req_host,
+            "risk_level": act.get("risk_level", "low")
+        })
+
+    if validation_errors:
+        _log_audit("apply", "blocked", {"proposal_id": proposal_id, "errors": validation_errors})
+        return {
+            "status": "blocked",
+            "reason": "validation_failed",
+            "errors": validation_errors,
+            "proposal_id": proposal_id,
+            "will_write": False
+        }
+
+    # 7. Simulation response (PHASE 4B: No mutations yet)
+    _log_audit("apply", "simulation", {"proposal_id": proposal_id, "plan_size": len(simulation_plan)})
     return {
-        "status": "applied",
+        "status": "validated",
+        "mode": "apply-simulation",
+        "message": "Fase 4B: Proposta validada. Nenhuma mutação real executada.",
         "proposal_id": proposal_id,
-        "results": results,
+        "will_write": False,
+        "requires_approval": True,
+        "host": hostname,
+        "simulation_plan": simulation_plan
     }
 
 

@@ -72,7 +72,7 @@ async def propose(diag: dict[str, Any]) -> list[dict[str, Any]]:
                     "description": "Remover trava de indexação (.index.lock) antiga/órfã.",
                     "proposed_actions": ["kryonix brain index --clean-state"], # or specific unlock
                     "rollback_actions": ["Nenhum"],
-                    "requires_host": "any",
+                    "requires_host": "glacier",
                 })
 
     return proposals

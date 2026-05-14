@@ -82,10 +82,36 @@ async def diagnose(obs: dict[str, Any]) -> dict[str, Any]:
     }
 
     if not obs.get("connected"):
-        diag["ok"] = False
-        diag["anomalies"].append("neo4j_disconnected")
-        diag["recommendations"].append("Verifique o serviço neo4j.service e as credenciais.")
-        return diag
+        import os
+        import socket
+        import urllib.request
+
+        hostname = socket.gethostname().lower()
+        if hostname != "glacier":
+            remote_ok = False
+            remote_url = os.getenv("KRYONIX_BRAIN_API", "http://10.0.0.2:8000").rstrip("/") + "/health"
+            try:
+                with urllib.request.urlopen(remote_url, timeout=2.0) as resp:
+                    if resp.status == 200:
+                        remote_ok = True
+            except Exception:
+                pass
+
+            if remote_ok:
+                diag["ok"] = True
+                diag["status"] = "warning"
+                diag["reason"] = "Neo4j local indisponível no cliente; use Glacier ou Brain API remota para validação oficial."
+                return diag
+            else:
+                diag["ok"] = False
+                diag["anomalies"].append("neo4j_disconnected")
+                diag["recommendations"].append("Neo4j local e Brain API remota indisponíveis no cliente.")
+                return diag
+        else:
+            diag["ok"] = False
+            diag["anomalies"].append("neo4j_disconnected")
+            diag["recommendations"].append("Verifique o serviço neo4j.service e as credenciais.")
+            return diag
 
     metrics = obs.get("metrics", {})
     if metrics.get("cli_command_count", 0) == 0:

@@ -73,7 +73,7 @@ async def propose(diag: dict[str, Any]) -> list[dict[str, Any]]:
                     "description": "Construir/atualizar o pacote de contexto técnico acelerado (CAG).",
                     "proposed_actions": ["kryonix brain cag build"],
                     "rollback_actions": ["Restaurar diretório CAG anterior"],
-                    "requires_host": "any",
+                    "requires_host": "glacier",
                 })
 
     return proposals

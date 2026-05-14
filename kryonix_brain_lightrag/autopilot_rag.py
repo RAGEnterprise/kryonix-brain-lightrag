@@ -88,7 +88,7 @@ async def propose(diag: dict[str, Any]) -> list[dict[str, Any]]:
                     "description": "Reparar e sincronizar Vector DB com o Knowledge Graph principal.",
                     "proposed_actions": ["kryonix brain repair-vdb"],
                     "rollback_actions": ["Restaurar backup do vdb_entities.json"],
-                    "requires_host": "any",
+                    "requires_host": "glacier",
                 })
             elif anomaly == "failed_index_docs_present":
                 proposals.append({
@@ -98,7 +98,7 @@ async def propose(diag: dict[str, Any]) -> list[dict[str, Any]]:
                     "description": "Re-processar chunks de documentos que falharam na ingestão anterior.",
                     "proposed_actions": ["kryonix brain index --retry-failed"],
                     "rollback_actions": ["Nenhum"],
-                    "requires_host": "any",
+                    "requires_host": "glacier",
                 })
 
     return proposals

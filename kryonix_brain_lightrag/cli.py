@@ -1502,6 +1502,29 @@ async def cmd_autopilot(args):
             else:
                 console.print(f"[bold red][FAIL][/bold red] Falha ao aplicar: {e}")
             sys.exit(1)
+    elif sub == "approve":
+        prop_id = getattr(args, "id", None)
+        if not prop_id:
+            if json_mode:
+                print(json.dumps({"status": "error", "message": "--id <proposal_id> is required for approve."}, indent=2))
+            else:
+                console.print("[red][ERRO][/red] --id <id> é obrigatório para aprovar.")
+            sys.exit(1)
+        try:
+            res = await autopilot.approve(prop_id)
+            if json_mode:
+                print(json.dumps(res, indent=2))
+            else:
+                if res["status"] == "approved":
+                    console.print(f"[bold green][OK][/bold green] Proposta {prop_id} aprovada com sucesso.")
+                else:
+                    console.print(f"[bold red][FAIL][/bold red] {res.get('message', 'Erro desconhecido')}")
+        except Exception as e:
+            if json_mode:
+                print(json.dumps({"status": "error", "message": str(e)}))
+            else:
+                console.print(f"[bold red][FAIL][/bold red] Falha ao aprovar: {e}")
+            sys.exit(1)
     elif sub == "audit":
         logs = await autopilot.audit()
         if json_mode:
@@ -1696,6 +1719,12 @@ def main():
     ap_app.add_argument("--proposal", required=False, default=None, help="Proposal ID to apply")
     ap_app.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     ap_app.set_defaults(func=cmd_autopilot)
+    
+    ap_approve = ap_sub.add_parser("approve", help="Approve a pending proposal")
+    ap_approve.add_argument("--id", required=True, help="Proposal ID to approve")
+    ap_approve.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    ap_approve.set_defaults(func=cmd_autopilot)
+
     sp_ap.set_defaults(func=cmd_autopilot)
 
     # ── CAG — Context-Augmented Generation ──────────────────────────────────
