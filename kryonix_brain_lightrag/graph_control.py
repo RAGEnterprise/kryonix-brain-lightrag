@@ -333,6 +333,8 @@ def _collect_registry_v2(repo_root: Path) -> tuple[list[dict[str, Any]], list[di
                 "requires_sudo": sudo,
                 "status": status,
                 "risk_level": risk,
+                "category": category,
+                "flags": entry.get("flags", []),
             }
             nodes.append({"label": node_label, "key": node_key, "props": props})
             # Relation to parent
