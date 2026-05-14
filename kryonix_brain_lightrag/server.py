@@ -12,7 +12,7 @@ sys.stdout = sys.stderr
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, Resource
 
 from . import rag as rag_mod
 from . import config
@@ -21,9 +21,115 @@ from .index import cmd_repair_vdb, cmd_index
 
 app = Server("kryonix-brain")
 
+@app.list_resources()
+async def list_resources() -> list[Resource]:
+    return [
+        Resource(
+            uri="kryonix://context/current-state",
+            name="current_state",
+            description="Estado atual do repositório Kryonix",
+            mimeType="text/markdown"
+        ),
+        Resource(
+            uri="kryonix://context/active-work",
+            name="active_work",
+            description="Trabalho em andamento no Kryonix",
+            mimeType="text/markdown"
+        ),
+        Resource(
+            uri="kryonix://context/decisions",
+            name="decisions",
+            description="Decisões arquiteturais do projeto Kryonix",
+            mimeType="text/markdown"
+        ),
+        Resource(
+            uri="kryonix://cli/registry-json",
+            name="registry_json",
+            description="Metadados operacionais canônicos do Kryonix Registry v2",
+            mimeType="application/json"
+        ),
+        Resource(
+            uri="kryonix://cli/contract",
+            name="cli_contract",
+            description="Contrato de comandos canônicos da CLI Kryonix",
+            mimeType="text/markdown"
+        ),
+        Resource(
+            uri="kryonix://agents/readme",
+            name="agents_readme",
+            description="Guia canônico de agentes Kryonix (AGENTS.md)",
+            mimeType="text/markdown"
+        )
+    ]
+
+@app.read_resource()
+async def read_resource(uri: str) -> str:
+    repo_root = Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
+    mapping = {
+        "kryonix://context/current-state": repo_root / ".context/CURRENT_STATE.md",
+        "kryonix://context/active-work": repo_root / ".context/ACTIVE_WORK.md",
+        "kryonix://context/decisions": repo_root / ".context/DECISIONS.md",
+        "kryonix://cli/contract": repo_root / "docs/cli/KRYONIX_COMMAND_CONTRACT.md",
+        "kryonix://agents/readme": repo_root / "AGENTS.md"
+    }
+    uri_str = str(uri)
+    if uri_str in mapping:
+        path = mapping[uri_str]
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        raise FileNotFoundError(f"Resource file not found: {path}")
+    elif uri_str == "kryonix://cli/registry-json":
+        import subprocess
+        return subprocess.check_output(["kryonix", "commands", "--json"], encoding="utf-8")
+    raise ValueError(f"Unknown resource URI: {uri_str}")
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+        # ── Kryonix Read-Only Quality Layer Tools ───────────────────
+        Tool(
+            name="kryonix_cli_commands",
+            description="Returns the canonical list of CLI commands from Kryonix Registry v2 in JSON format.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="kryonix_cli_help",
+            description="Returns the standard CLI help text for kryonix command.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="kryonix_context_bundle",
+            description="Returns a consolidated bundle of all active context files (CURRENT_STATE, ACTIVE_WORK, DECISIONS, CONSTRAINTS, REPO_MAP).",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="kryonix_repo_search",
+            description="Search for a text pattern across the Kryonix repository files.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Regex or text pattern to search"}
+                },
+                "required": ["pattern"],
+            },
+        ),
+        Tool(
+            name="kryonix_graph_query_readonly",
+            description="Run a read-only Cypher query against the Kryonix Neo4j knowledge graph.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cypher": {"type": "string", "description": "Cypher query starting with MATCH"}
+                },
+                "required": ["cypher"],
+            },
+        ),
+        Tool(
+            name="kryonix_health",
+            description="Returns full diagnostic health status of Kryonix Brain, Graph, and AI stack.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+
         # ── RAG & Knowledge Tools ───────────────────────────────────
         Tool(
             name="rag_search",
@@ -135,8 +241,60 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
+        # --- Read-Only Quality Layer Tools ---
+        if name == "kryonix_cli_commands":
+            import subprocess
+            out = subprocess.check_output(["kryonix", "commands", "--json"], encoding="utf-8")
+            return [TextContent(type="text", text=out)]
+
+        elif name == "kryonix_cli_help":
+            import subprocess
+            out = subprocess.check_output(["kryonix", "--help"], encoding="utf-8")
+            return [TextContent(type="text", text=out)]
+
+        elif name == "kryonix_context_bundle":
+            repo_root = Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
+            bundle = []
+            for fname in ["CURRENT_STATE.md", "ACTIVE_WORK.md", "DECISIONS.md", "CONSTRAINTS.md", "REPO_MAP.md"]:
+                p = repo_root / ".context" / fname
+                if p.exists():
+                    bundle.append(f"=== {fname} ===\n" + p.read_text(encoding="utf-8") + "\n")
+            return [TextContent(type="text", text="\n".join(bundle))]
+
+        elif name == "kryonix_repo_search":
+            import subprocess
+            pattern = arguments.get("pattern", "")
+            if not pattern:
+                return [TextContent(type="text", text="Search pattern cannot be empty.")]
+            repo_root = Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
+            try:
+                out = subprocess.check_output(["git", "grep", "-n", pattern], cwd=repo_root, encoding="utf-8", stderr=subprocess.PIPE)
+                return [TextContent(type="text", text=out)]
+            except subprocess.CalledProcessError as e:
+                if e.returncode == 1:
+                    return [TextContent(type="text", text="No matches found.")]
+                return [TextContent(type="text", text=f"Search error: {e.stderr}")]
+
+        elif name == "kryonix_graph_query_readonly":
+            from .graph_control import graph_query
+            cypher = arguments.get("cypher", "")
+            res = graph_query(cypher)
+            return [TextContent(type="text", text=json.dumps(res, indent=2, ensure_ascii=False))]
+
+        elif name == "kryonix_health":
+            from .graph_control import graph_doctor
+            from .cli import cmd_doctor
+            import io
+            from contextlib import redirect_stdout
+            f = io.StringIO()
+            with redirect_stdout(f):
+                await cmd_doctor(None)
+            g_doc = graph_doctor()
+            out = f"=== Brain Doctor ===\n{f.getvalue()}\n\n=== Graph Doctor ===\n{json.dumps(g_doc, indent=2, ensure_ascii=False)}"
+            return [TextContent(type="text", text=out)]
+
         # --- RAG & Search ---
-        if name == "rag_search":
+        elif name == "rag_search":
             query = arguments.get("query", "")
             mode = arguments.get("mode", "hybrid")
             lang = arguments.get("lang", "pt-BR")
