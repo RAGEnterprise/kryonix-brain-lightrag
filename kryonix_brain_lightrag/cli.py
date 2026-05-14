@@ -1714,12 +1714,12 @@ def main():
         ap_p = ap_sub.add_parser(cmd_name, help=cmd_help)
         ap_p.add_argument("--json", action="store_true", help="Machine-readable JSON output")
         ap_p.set_defaults(func=cmd_autopilot)
-    
+
     ap_app = ap_sub.add_parser("apply", help="Apply approved proposal")
     ap_app.add_argument("--proposal", required=False, default=None, help="Proposal ID to apply")
     ap_app.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     ap_app.set_defaults(func=cmd_autopilot)
-    
+
     ap_approve = ap_sub.add_parser("approve", help="Approve a pending proposal")
     ap_approve.add_argument("--id", required=True, help="Proposal ID to approve")
     ap_approve.add_argument("--json", action="store_true", help="Machine-readable JSON output")

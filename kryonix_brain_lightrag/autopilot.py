@@ -296,7 +296,7 @@ async def apply(proposal_id: str) -> dict[str, Any]:
         repo_root = Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
         env = os.environ.copy()
         env["PATH"] = f"/run/current-system/sw/bin:{env.get('PATH', '')}"
-        
+
         kryonix_bin = "/run/current-system/sw/bin/kryonix"
         if not os.path.exists(kryonix_bin):
             main_sh = repo_root / "packages/kryonix-cli/main.sh"
@@ -306,7 +306,7 @@ async def apply(proposal_id: str) -> dict[str, Any]:
                 raise RuntimeError("Kryonix CLI not found")
         else:
             output = subprocess.check_output([kryonix_bin, "commands", "--json"], encoding="utf-8", env=env, stderr=subprocess.PIPE)
-        
+
         reg_data = json.loads(output)
         for cmd in reg_data.get("commands", []):
             full_name = cmd["name"]
@@ -348,7 +348,7 @@ async def apply(proposal_id: str) -> dict[str, Any]:
             clean_cmd = cmd_str
             if cmd_str.startswith("kryonix "):
                 clean_cmd = cmd_str[len("kryonix "):].strip()
-            
+    
             found = False
             for reg_name in registry_commands:
                 if clean_cmd.startswith(reg_name):
