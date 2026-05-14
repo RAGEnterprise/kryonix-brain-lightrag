@@ -64,6 +64,10 @@ class SearchResponse(BaseModel):
     warnings: list = []
     mode: str | None = None
     intent: str | None = None
+    # Top-level scores for easy access
+    retrieval_score: float | None = None
+    answerability_score: float | None = None
+    answerability_reason: str | None = None
 
 class IngestProposeRequest(BaseModel):
     content: str = Field(..., description="Conteúdo a ser ingerido no grafo LightRAG")
@@ -139,6 +143,9 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
         res["generation_skipped"] = res.get("generation_skipped", False)
         res["provider_used"] = res.get("provider_used")
         res["tps"] = res.get("tps")
+        res["retrieval_score"] = res.get("grounding", {}).get("retrieval_score")
+        res["answerability_score"] = res.get("grounding", {}).get("answerability_score")
+        res["answerability_reason"] = res.get("grounding", {}).get("answerability_reason")
         
         return SearchResponse(**res)
     except Exception as e:

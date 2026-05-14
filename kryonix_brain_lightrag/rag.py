@@ -76,6 +76,9 @@ def assess_intent_coverage(query_text: str, chunks: list[dict]) -> dict:
     text = _chunk_text(chunks)
     covered_terms: list[str] = []
     missing_terms: list[str] = []
+    
+    # Base numeric answerability
+    answerability_score = 0.0
 
     if _is_ask_search_comparison(query_text):
         required_terms = ["ask", "search"]
@@ -89,22 +92,30 @@ def assess_intent_coverage(query_text: str, chunks: list[dict]) -> dict:
             covered_terms.append("comparação")
             intent_coverage = "full"
             answerability = "answerable"
+            answerability_score = 1.0
         elif covered_terms:
             intent_coverage = "partial"
             answerability = "partial"
+            answerability_score = 0.5
         else:
             intent_coverage = "none"
             answerability = "not_answerable"
+            answerability_score = 0.0
     elif chunks:
         intent_coverage = "full"
         answerability = "answerable"
+        # For standard queries, we estimate answerability based on retrieval score
+        # but capped until a deeper analysis (Issue #41) is implemented.
+        answerability_score = 0.85
     else:
         intent_coverage = "none"
         answerability = "not_answerable"
+        answerability_score = 0.0
 
     return {
         "intent_coverage": intent_coverage,
         "answerability": answerability,
+        "answerability_score": answerability_score,
         "covered_terms": covered_terms,
         "missing_terms": missing_terms,
     }
@@ -113,6 +124,7 @@ def assess_intent_coverage(query_text: str, chunks: list[dict]) -> dict:
 def build_grounding_metadata(
     *,
     retrieval_score: float = 0.0,
+    answerability_score: float = 0.0,
     intent_coverage: str = "none",
     answerability: str = "not_answerable",
     covered_terms: list[str] | None = None,
@@ -122,15 +134,26 @@ def build_grounding_metadata(
     intent: str = "ask",
     query_meta: dict | None = None,
 ) -> dict:
-    if answerability == "not_answerable":
+    # New logic: Grounding label is now a composite of retrieval and answerability
+    if answerability_score < 0.4:
         grounding_label = "Baixa"
-    elif intent_coverage == "partial":
+    elif answerability_score < 0.7:
         grounding_label = "Média"
     else:
+        # High answerability, now look at retrieval quality
         grounding_label = "Alta" if retrieval_score > 0.7 else "Média" if retrieval_score > 0.4 else "Baixa"
+
+    # Set reason for low answerability if retrieval was high (the contradiction case)
+    answerability_reason = ""
+    if answerability_score < 0.4 and retrieval_score > 0.6:
+        answerability_reason = "Similaridade alta, mas cobertura insuficiente da intenção da pergunta."
+    elif answerability_score < 0.4:
+        answerability_reason = "Nenhuma evidência direta encontrada para responder à pergunta."
 
     metadata = {
         "retrieval_score": round(retrieval_score, 3),
+        "answerability_score": round(answerability_score, 3),
+        "answerability_reason": answerability_reason,
         "intent_coverage": intent_coverage,
         "answerability": answerability,
         "grounding_label": grounding_label,
@@ -671,6 +694,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     strategy=strategy["strategy"],
                     intent=intent,
                     query_meta=query_meta,
+                    answerability_score=0.0,
                 ),
             }
             
@@ -706,6 +730,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                         strategy=strategy["strategy"],
                         intent=intent,
                         query_meta=query_meta,
+                        answerability_score=0.0,
                     ),
                 }
 
@@ -721,6 +746,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     strategy=strategy["strategy"],
                     intent=intent,
                     query_meta=query_meta,
+                    answerability_score=0.0,
                 ),
             }
             
@@ -741,6 +767,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         confidence = "Alta" if max_score > 0.7 else "Média" if max_score > 0.4 else "Baixa"
         grounding = build_grounding_metadata(
             retrieval_score=max_score,
+            answerability_score=coverage["answerability_score"],
             intent_coverage=coverage["intent_coverage"],
             answerability=coverage["answerability"],
             covered_terms=coverage["covered_terms"],
@@ -854,6 +881,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     "sources": sources,
                     "grounding": build_grounding_metadata(
                         retrieval_score=max_score,
+                        answerability_score=0.0,
                         intent_coverage="none",
                         answerability="not_answerable",
                         mode=search_mode,
