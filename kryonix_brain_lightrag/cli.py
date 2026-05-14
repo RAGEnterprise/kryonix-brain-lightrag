@@ -193,6 +193,33 @@ async def cmd_graph(args):
     elif args.sub == "heal":
         res = await heal_graph(verbose=args.verbose)
         console.print(f"[green]{res}[/green]")
+    elif args.sub == "ingest-registry":
+        await cmd_graph_ingest_registry(args)
+
+async def cmd_graph_ingest_registry(args):
+    """Ingest CLI Registry v2 into the knowledge graph."""
+    from . import graph_control
+    if getattr(args, "apply", False):
+        manifest_id = args.manifest_id
+        if not manifest_id:
+            console.print("[red][ERRO][/red] --apply requer um manifest_id")
+            return
+        res = graph_control.apply_manifest(manifest_id)
+        if getattr(args, "json", False):
+            print(json.dumps(res))
+        else:
+            console.print(f"[green][OK][/green] Manifest {manifest_id} aplicado com sucesso.")
+    else:
+        res = graph_control.dry_run_ingest()
+        if getattr(args, "json", False):
+            print(json.dumps(res))
+        else:
+            console.print(f"[bold cyan]Graph Ingest Registry Dry-Run[/bold cyan]")
+            console.print(f"Manifest ID: {res['manifest_id']}")
+            console.print(f"Manifest Path: {res['manifest_path']}")
+            console.print(f"Nodes to upsert: {res['stats']['node_count']}")
+            console.print(f"Rels to upsert: {res['stats']['relationship_count']}")
+            console.print(f"\n[yellow]Use `kryonix graph ingest-registry --apply {res['manifest_id']}` para confirmar.[/yellow]")
 
 async def cmd_brain(args):
     """Brain orchestration."""
@@ -1559,6 +1586,12 @@ def main():
     sp_g_exp.add_argument("--limit", type=int, default=500, help="Max entities to export")
     sp_g_heal = sp_g_sub.add_parser("heal", help="Semantic graph healing for orphans")
     sp_g_heal.add_argument("--verbose", action="store_true")
+    
+    sp_g_reg = sp_g_sub.add_parser("ingest-registry", help="Ingest CLI Registry v2 metadata")
+    sp_g_reg.add_argument("--apply", action="store_true", help="Apply the manifest")
+    sp_g_reg.add_argument("manifest_id", nargs="?", help="Manifest ID to apply")
+    sp_g_reg.add_argument("--json", action="store_true", help="Output in JSON")
+
     sp_graph.set_defaults(func=cmd_graph)
 
     # brain

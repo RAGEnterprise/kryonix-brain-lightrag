@@ -4,6 +4,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -21,6 +22,12 @@ GRAPH_SCHEMA_V1 = {
         "Service",
         "File",
         "Command",
+        "CliCommand",
+        "CliSubcommand",
+        "CliCategory",
+        "RiskLevel",
+        "Runtime",
+        "Example",
         "Issue",
         "Port",
         "Model",
@@ -48,6 +55,12 @@ GRAPH_SCHEMA_V1 = {
         "HAS_STEP",
         "USED_TOOL",
         "RETURNED",
+        "HAS_SUBCOMMAND",
+        "IN_CATEGORY",
+        "HAS_RISK",
+        "REQUIRES_RUNTIME",
+        "TARGETS_HOST",
+        "HAS_EXAMPLE",
     ],
 }
 
@@ -267,24 +280,128 @@ def _collect_import_edges(repo_root: Path) -> tuple[list[dict[str, Any]], list[d
     return file_nodes, import_rels
 
 
+def _collect_registry_v2(repo_root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    try:
+        output = subprocess.check_output(["kryonix", "commands", "--json"], encoding="utf-8", stderr=subprocess.PIPE)
+        data = json.loads(output)
+    except Exception:
+        # Fallback para execução direta via shell se 'kryonix' não estiver no path
+        try:
+            main_sh = repo_root / "packages/kryonix-cli/main.sh"
+            if not main_sh.exists():
+                return [], []
+            output = subprocess.check_output(["bash", str(main_sh), "commands", "--json"], encoding="utf-8")
+            data = json.loads(output)
+        except Exception:
+            return [], []
+
+    nodes: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+
+    # Map version
+    schema_v = data.get("schema_version", 1)
+
+    for entry in data.get("commands", []):
+        group = entry.get("group", "unknown")
+        name = entry.get("name", "unknown")
+        sub = entry.get("subcommand", "")
+        desc = entry.get("description", "")
+        risk = entry.get("risk_level", "low")
+        sudo = entry.get("requires_sudo", False)
+        status = entry.get("status", "stable")
+        category = entry.get("category", group)
+        hosts_raw = entry.get("requires_host", "any")
+        runtimes = entry.get("requires_runtime", [])
+        examples = entry.get("examples", [])
+
+        # 1. Base Nodes (Categories, Risk, Runtime, Host)
+        nodes.append({"label": "CliCategory", "key": {"name": category}, "props": {}})
+        nodes.append({"label": "RiskLevel", "key": {"name": risk}, "props": {}})
+
+        # 2. Command/Subcommand Node
+        if sub:
+            node_label = "CliSubcommand"
+            full_name = f"{name} {sub}"
+            node_key = {"name": sub, "parent": name}
+            props = {
+                "full_name": full_name,
+                "description": desc,
+                "requires_sudo": sudo,
+                "status": status,
+                "risk_level": risk,
+            }
+            nodes.append({"label": node_label, "key": node_key, "props": props})
+            # Relation to parent
+            rels.append(_rel("CliCommand", {"name": name}, "HAS_SUBCOMMAND", "CliSubcommand", node_key))
+        else:
+            node_label = "CliCommand"
+            node_key = {"name": name}
+            props = {
+                "description": desc,
+                "requires_sudo": sudo,
+                "status": status,
+                "risk_level": risk,
+                "category": category,
+            }
+            nodes.append({"label": node_label, "key": node_key, "props": props})
+
+        # 3. Relations and Nodes
+        # Category
+        nodes.append({"label": "CliCategory", "key": {"name": category}, "props": {}})
+        rels.append(_rel(node_label, node_key, "IN_CATEGORY", "CliCategory", {"name": category}))
+        # Risk
+        nodes.append({"label": "RiskLevel", "key": {"name": risk}, "props": {}})
+        rels.append(_rel(node_label, node_key, "HAS_RISK", "RiskLevel", {"name": risk}))
+
+        # Runtimes
+        for rt in runtimes:
+            if rt.lower() == "none":
+                continue
+            nodes.append({"label": "Runtime", "key": {"name": rt}, "props": {}})
+            rels.append(_rel(node_label, node_key, "REQUIRES_RUNTIME", "Runtime", {"name": rt}))
+
+        # Hosts
+        target_hosts = []
+        if hosts_raw == "any":
+            target_hosts = ["inspiron", "glacier"]
+        else:
+            target_hosts = [h.strip() for h in hosts_raw.split(",")]
+
+        for h in target_hosts:
+            # We match the existing Host nodes
+            rels.append(_rel(node_label, node_key, "TARGETS_HOST", "Host", {"name": h}))
+
+        # Examples
+        for ex in examples:
+            ex_id = f"ex-{uuid.uuid4().hex[:8]}"
+            nodes.append({"label": "Example", "key": {"text": ex}, "props": {}})
+            rels.append(_rel(node_label, node_key, "HAS_EXAMPLE", "Example", {"text": ex}))
+
+        # Source File relation
+        rels.append(_rel("File", {"path": "packages/kryonix-cli/registry.sh"}, "DECLARES", node_label, node_key))
+
+    return nodes, rels
+
+
 def build_manifest(repo_root: Path | None = None) -> dict[str, Any]:
     repo_root = repo_root or Path(os.getenv("KRYONIX_REPO_ROOT", "/etc/kryonix"))
 
     host_nodes = _collect_hosts(repo_root)
     service_nodes, service_rels, service_files = _collect_services(repo_root)
     file_nodes, import_rels = _collect_import_edges(repo_root)
+    reg_nodes, reg_rels = _collect_registry_v2(repo_root)
 
     host_service_rels = [_rel("Host", {"name": "glacier"}, "RUNS", "Service", {"name": n["key"]["name"]}) for n in service_nodes if n["label"] == "Service"]
 
     node_map: dict[str, dict[str, Any]] = {}
-    for node in host_nodes + service_nodes + service_files + file_nodes:
+    for node in host_nodes + service_nodes + service_files + file_nodes + reg_nodes:
         key = f"{node['label']}::{json.dumps(node['key'], sort_keys=True)}"
         if key in node_map:
             node_map[key]["props"].update(node.get("props", {}))
         else:
             node_map[key] = node
 
-    rels = service_rels + import_rels + host_service_rels
+    rels = service_rels + import_rels + host_service_rels + reg_rels
 
     manifest = {
         "manifest_id": f"graph-v1-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}",
