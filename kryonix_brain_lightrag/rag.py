@@ -630,7 +630,13 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         normalized_term = query_meta["query_normalized"]
         
         # 1. Query Strategy Planning
-        strategy = await analyze_query_strategy(normalized_term)
+        if intent == "search":
+            strategy = {"strategy": "balanced", "mode": "hybrid", "hops": 1, "top_k": 15}
+        else:
+            strategy = await analyze_query_strategy(normalized_term)
+            # 2. Expand query semanticamente
+            normalized_term = await expand_query_semantically(normalized_term)
+            
         search_mode = mode if mode != "hybrid" else strategy["mode"]
         hops = strategy["hops"]
         top_k_chunks = strategy["top_k"]
@@ -638,8 +644,8 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         if verbose or explain:
             console.print(f"[dim][DEBUG] Query Strategy: {strategy['strategy']} (mode={search_mode}, hops={hops}, top_k={top_k_chunks})[/dim]")
         
-        # 2. Expand query semanticamente
-        expanded_query = await expand_query_semantically(normalized_term)
+        # 3. Retrieval Engine Execution
+        expanded_query = normalized_term
         
         # 3. RAG Pipeline com Grounding Avançado
         
