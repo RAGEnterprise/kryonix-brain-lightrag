@@ -195,7 +195,7 @@ async def cag_ask(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
         return res
     except FileNotFoundError as e:
         logger.warning(f"Missing CAG manifest in remote cag ask: {e}")
-        raise HTTPException(status_code=404, detail=_missing_manifest_payload(e))
+        return _missing_manifest_payload(e)
     except Exception as e:
         logger.error(f"Error in remote cag ask: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -209,7 +209,7 @@ async def cag_route(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
         return res
     except FileNotFoundError as e:
         logger.warning(f"Missing CAG manifest in remote cag route: {e}")
-        raise HTTPException(status_code=404, detail=_missing_manifest_payload(e))
+        return _missing_manifest_payload(e)
     except Exception as e:
         logger.error(f"Error in remote cag route: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -218,15 +218,12 @@ async def cag_route(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
 async def cag_status(api_key: str = Depends(get_api_key)):
     """Verifica o status do CAG pack remoto."""
     from . import cag as cag_mod
-    try:
-        res = cag_mod.status()
-        return res
-    except FileNotFoundError as e:
-        logger.warning(f"Missing CAG manifest in remote cag status: {e}")
-        raise HTTPException(status_code=404, detail=_missing_manifest_payload(e))
-    except Exception as e:
-        logger.error(f"Error in remote cag status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    res = cag_mod.status()
+    if res.get("status") == "missing":
+        # Retorna o payload amigável mas mantendo status 200
+        # para o CLI não tratar como erro de rede
+        return _missing_manifest_payload(FileNotFoundError(res.get("message", "Manifest not found")))
+    return res
 
 @app.get("/graph/status")
 async def graph_status(api_key: str = Depends(get_api_key)):

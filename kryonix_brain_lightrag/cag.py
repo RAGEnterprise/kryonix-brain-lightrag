@@ -351,26 +351,84 @@ def build(
         }
 
 
+def _get_current_repo_commit(repo_root: str) -> str:
+    """Try to get the current commit hash of the repository."""
+    try:
+        import subprocess
+        res = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=False
+        )
+        if res.returncode == 0:
+            return res.stdout.strip()
+    except:
+        pass
+    return ""
+
 def status(cag_dir: Path = DEFAULT_CAG_DIR) -> dict:
     """Return the summary of an existing CAG pack."""
     if RUST_BINARY is not None:
-        return _run_rust(["status", "--dir", str(cag_dir)])
+        try:
+            return _run_rust(["status", "--dir", str(cag_dir)])
+        except RuntimeError as e:
+            if "manifest" in str(e).lower() or "not found" in str(e).lower():
+                return {
+                    "status": "missing",
+                    "ok": False,
+                    "message": "CAG manifest não encontrado.",
+                    "manifest_path": str(cag_dir / MANIFEST_FILENAME),
+                    "backend": "rust"
+                }
+            raise
+
     # Python fallback
     manifest_path = cag_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
-        raise FileNotFoundError(f"No manifest found at {manifest_path}")
-    manifest = json.loads(manifest_path.read_text())
-    return {
-        "version": manifest.get("version"),
-        "profile": manifest.get("profile"),
-        "repo_root": manifest.get("repo_root"),
-        "built_at": manifest.get("built_at"),
-        "total_files": manifest.get("total_files"),
-        "total_bytes": manifest.get("total_bytes"),
-        "content_hash": manifest.get("content_hash", "")[:16],
-        "tag_count": len(manifest.get("tags", {})),
-        "backend": "python-fallback",
-    }
+        return {
+            "status": "missing",
+            "ok": False,
+            "message": "CAG manifest não encontrado.",
+            "manifest_path": str(manifest_path),
+            "backend": "python-fallback"
+        }
+    
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        built_at = manifest.get("built_at", "")
+        repo_root = manifest.get("repo_root", "")
+        manifest_commit = manifest.get("repo_commit", "")
+        
+        freshness = "unknown"
+        current_commit = ""
+        if repo_root and manifest_commit:
+            current_commit = _get_current_repo_commit(repo_root)
+            if current_commit:
+                freshness = "OK" if current_commit == manifest_commit else "STALE"
+        
+        return {
+            "status": "ok",
+            "ok": True,
+            "version": manifest.get("version"),
+            "profile": manifest.get("profile"),
+            "repo_root": repo_root,
+            "built_at": built_at,
+            "repo_commit": manifest_commit,
+            "current_commit": current_commit,
+            "freshness": freshness,
+            "total_files": manifest.get("total_files"),
+            "total_bytes": manifest.get("total_bytes"),
+            "content_hash": manifest.get("content_hash", "")[:16],
+            "tag_count": len(manifest.get("tags", {})),
+            "backend": "python-fallback",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "ok": False,
+            "message": f"Erro ao ler manifest: {str(e)}",
+            "manifest_path": str(manifest_path),
+            "backend": "python-fallback"
+        }
 
 
 def route(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 10) -> dict:

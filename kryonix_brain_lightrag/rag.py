@@ -682,13 +682,15 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         is_ask_search_compare = _is_ask_search_comparison(normalized_term)
         
         params = QueryParam(mode=search_mode, top_k=20)
-        data_res = await rag.aquery_data(expanded_query, param=params)
-        
-        if data_res.get("status") != "success":
+        # Bypassing the non-existent aquery_data and using direct VDB access
+        try:
+            entities = await rag.entities_vdb.query(expanded_query, top_k=20)
+            relations = await rag.relationships_vdb.query(expanded_query, top_k=20)
+        except Exception as e:
+            logger.error(f"VDB retrieval failed: {e}")
             return {
                 "status": "error",
-                "answer": f"Falha na busca de dados: {data_res.get('message')}",
-                "warnings": ["Upstream query_data failed"],
+                "answer": f"Falha na recuperação vetorial: {str(e)}",
                 "grounding": build_grounding_metadata(
                     mode=search_mode,
                     strategy=strategy["strategy"],
@@ -697,10 +699,6 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     answerability_score=0.0,
                 ),
             }
-            
-        data = data_res.get("data", {})
-        entities = data.get("entities", [])
-        relations = data.get("relationships", [])
         
         # Grounding manual com expansão e ranking
         ranked_chunks = await _manual_grounding(entities, relations, expanded_query, hops=hops)
@@ -791,11 +789,17 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
 
         context_str = "--- CONTEXTO DO GRAFO (ENTIDADES) ---\n"
         for ent in entities[:15]:
-            context_str += f"- {ent['entity_name']} ({ent['entity_type']}): {ent['description']}\n"
+            e_name = ent.get('entity_name', 'Desconhecido')
+            e_type = ent.get('entity_type', 'Geral')
+            e_desc = ent.get('description', 'Sem descrição')
+            context_str += f"- {e_name} ({e_type}): {e_desc}\n"
             
         context_str += "\n--- CONTEXTO DO GRAFO (RELAÇÕES) ---\n"
         for rel in relations[:15]:
-            context_str += f"- {rel['src_id']} -> {rel['tgt_id']}: {rel['description']}\n"
+            r_src = rel.get('src_id', 'Desconhecido')
+            r_tgt = rel.get('tgt_id', 'Desconhecido')
+            r_desc = rel.get('description', 'Sem descrição')
+            context_str += f"- {r_src} -> {r_tgt}: {r_desc}\n"
             
         context_str += "\n--- CONTEXTO DE TEXTO (CHUNKS RANKED) ---\n"
         sources = []
@@ -839,7 +843,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
             return res_dict
             
         if intent == "search":
-            return {
+            res_dict = {
                 "status": "success",
                 "answer": f"Evidências localizadas: {len(final_chunks)} chunks em {len(set(c['file_path'] for c in final_chunks))} arquivos.",
                 "confidence": grounding["grounding_label"],
@@ -852,6 +856,17 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                 "mode": search_mode,
                 "strategy": strategy["strategy"],
             }
+            if explain:
+                res_dict["answer"] += (
+                    "\n\n---\n"
+                    "**Metadados da Busca:**\n"
+                    f"- Modo: `{search_mode}`\n"
+                    f"- Intent: `{intent}`\n"
+                    f"- Estratégia: `{strategy['strategy']}`\n"
+                    f"- Grounding: `{grounding['grounding_label']}`\n"
+                    f"- Contexto do Grafo:\n{context_str[:500]}..."
+                )
+            return res_dict
 
         # 5. Resposta do LLM com Grounding Forçado
         system_prompt = (
@@ -1087,8 +1102,20 @@ async def detailed_diagnostics() -> dict:
     if diag["grounding"]["entities_missing_descriptions"] > info["entities"] * 0.5:
         diag["integrity"] = "WARNING: Many nodes missing semantic data"
     if info["consistency_status"] != "OK":
-        diag["integrity"] = "CRITICAL: Storage/Graph inconsistency"
+        if diag["integrity"] == "OK": diag["integrity"] = "CRITICAL: Storage/Graph inconsistency"
+        else: diag["integrity"] = "CRITICAL: inconsistency + " + diag["integrity"]
         
+    # Add CAG status
+    from . import cag as cag_mod
+    diag["cag"] = cag_mod.status()
+    
+    if diag["cag"].get("status") == "missing":
+        if diag["integrity"] == "OK": diag["integrity"] = "WARNING: CAG manifest missing"
+        else: diag["integrity"] += " + CAG manifest missing"
+    elif diag["cag"].get("freshness") == "STALE":
+        if diag["integrity"] == "OK": diag["integrity"] = "WARNING: CAG pack is STALE"
+        else: diag["integrity"] += " + CAG pack is STALE"
+
     return diag
     
 async def prune_vdb(verbose: bool = False) -> dict:
