@@ -51,6 +51,7 @@ class SearchRequest(BaseModel):
     no_cache: bool = False
     debug: bool = False
     explain: bool = False
+    test_provider: str | None = None
 
 class SearchResponse(BaseModel):
     status: str = "success"
@@ -136,6 +137,12 @@ async def search(req: SearchRequest, api_key: str = Depends(get_api_key)):
     except Exception as e:
         logger.error(f"Error during search: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/normalize")
+async def normalize_query(req: SearchRequest, api_key: str = Depends(get_api_key)):
+    """Apenas normaliza a query para depuração, sem executar busca."""
+    from .query_utils import normalize_query_details
+    return normalize_query_details(req.query)
 
 # ── CAG Endpoints ────────────────────────────────────────────────
 class CagQueryRequest(BaseModel):
