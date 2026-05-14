@@ -631,7 +631,7 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         
         # 1. Query Strategy Planning
         if intent == "search":
-            strategy = {"strategy": "balanced", "mode": "hybrid", "hops": 1, "top_k": 15}
+            strategy = {"strategy": "balanced", "mode": "naive", "hops": 0, "top_k": 15}
         else:
             strategy = await analyze_query_strategy(normalized_term)
             # 2. Expand query semanticamente
