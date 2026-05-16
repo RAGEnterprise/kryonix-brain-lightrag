@@ -484,7 +484,7 @@ def _ollama_request(prompt: str, system: str = "") -> str:
     host = u.hostname or "127.0.0.1"
     port = u.port or 11434
     
-    conn = http.client.HTTPConnection(host, port, timeout=30)
+    conn = http.client.HTTPConnection(host, port, timeout=120)
     payload = {
         "model": LLM_MODEL,
         "prompt": f"System: {system}\n\nUser: {prompt}\n\nAssistant:",
@@ -560,6 +560,9 @@ def ask(query: str, cag_dir: Path = DEFAULT_CAG_DIR, top_k: int = 5) -> dict:
     )
     
     answer = _ollama_request(prompt, system=system_prompt)
+    
+    if answer.startswith("Error calling Ollama:"):
+        answer = f"Grounding recuperado, mas síntese falhou por timeout ou erro no provider. Detalhes: {answer}"
     
     return {
         "answer": answer,
