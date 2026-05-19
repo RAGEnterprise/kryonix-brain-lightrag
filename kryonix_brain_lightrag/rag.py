@@ -880,8 +880,6 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
         answer = await llm_func(prompt, system_prompt=system_prompt)
         if coverage["answerability"] == "answerable":
             answer = _without_leading_no_grounding(answer)
-            if answer.strip() == NO_GROUNDING_TEXT or answer.strip() == "Não encontrei grounding suficiente no Vault/índice atual para responder com segurança.":
-                answer = "Grounding recuperado, mas síntese falhou por timeout no provider."
         
         # Pós-processamento anti-alucinação ESPECÍFICO para o pipeline RAG do Kryonix
         if is_pipeline_query:
@@ -908,8 +906,17 @@ async def query(term: str, mode: str = "hybrid", lang: str = None, verbose: bool
                     ),
                 }
 
+        status = "success"
+        stripped_ans = answer.strip().lower()
+        if (
+            stripped_ans == NO_GROUNDING_TEXT.lower()
+            or "não encontrei grounding suficiente" in stripped_ans
+            or stripped_ans.startswith("não encontrei grounding")
+        ):
+            status = "no_grounding"
+
         res_dict = {
-            "status": "success",
+            "status": status,
             "answer": answer,
             "confidence": grounding["grounding_label"],
             "max_score": round(max_score, 3),
