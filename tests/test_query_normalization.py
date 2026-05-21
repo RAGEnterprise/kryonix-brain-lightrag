@@ -32,3 +32,29 @@ def test_normalize_known_ptbr_typos():
 
 def test_normalize_search_and_ask_variants():
     assert normalize_query_for_retrieval("seach serach askk difereça") == "search search ask diferença"
+
+
+# ── Path-safety regressions (#34) ────────────────────────────────────────────
+
+def test_normalize_preserves_path_with_cag():
+    """cag inside a file path must NOT be uppercased to CAG."""
+    path = "/var/lib/kryonix/brain/cag/manifest.json"
+    assert normalize_query_for_retrieval(path) == path
+
+
+def test_normalize_preserves_path_with_rag():
+    """rag inside a file path must NOT be uppercased to RAG."""
+    path = "/var/lib/kryonix/brain/rag/storage"
+    assert normalize_query_for_retrieval(path) == path
+
+
+def test_normalize_does_not_corrupt_cli_flags():
+    """CLI flags like --json must survive normalization unchanged."""
+    query = "kryonix brain search --json"
+    assert normalize_query_for_retrieval(query) == query
+
+
+def test_normalize_standalone_cag_still_uppercased():
+    """cag as a standalone word in a question must still be normalized to CAG."""
+    result = normalize_query_for_retrieval("como usar o cag do kryonix")
+    assert "CAG" in result
