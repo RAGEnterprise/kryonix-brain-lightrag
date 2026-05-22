@@ -177,7 +177,9 @@ def _missing_manifest_payload(exc: FileNotFoundError) -> dict:
     if match:
         manifest_path = match.group(1)
     return {
+        "ok": False,
         "status": "missing_manifest",
+        "error_code": "CAG_MANIFEST_MISSING",
         "message": "CAG manifest não encontrado. Reconstrua o pack CAG antes de usar cag ask/route.",
         "manifest_path": manifest_path,
         "recommended_commands": [
@@ -355,7 +357,7 @@ async def events_log(req: EventLogRequest, api_key: str = Depends(get_api_key)):
     
     log_file = log_dir / f"events-{datetime.now().strftime('%Y-%m')}.jsonl"
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry, ensure_ascii=False) + "\\n")
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
         
     return {"status": "logged"}
 

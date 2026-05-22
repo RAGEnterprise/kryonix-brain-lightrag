@@ -11,6 +11,8 @@ def test_missing_manifest_payload_is_actionable():
     )
 
     assert payload["status"] == "missing_manifest"
+    assert payload["error_code"] == "CAG_MANIFEST_MISSING"
+    assert payload["ok"] is False
     assert payload["manifest_path"] == "/var/lib/kryonix/brain/cag/manifest.json"
     assert "kryonix brain cag status" in payload["recommended_commands"]
     assert "kryonix brain cag build" in payload["recommended_commands"]
