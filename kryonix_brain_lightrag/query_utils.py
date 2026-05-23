@@ -21,11 +21,13 @@ _KNOWN_TYPO_REPLACEMENTS = [
     (r"\bserach\b", "search"),
     (r"\bask+\b", "ask"),
     (r"\bas k\b", "ask"),
-    
+
     # Technical Terms - Kryonix & Infra
     (r"\bnix[\s\-]?os\b", "NixOS"),
-    (r"\bpkgs?\b", "package"),  # Note: logic might need adjustment if distinguishing singular/plural
-    
+    # NOTE: pkgs/pkg are canonical Nix attribute-set identifiers (nixpkgs).
+    # Do NOT add a pkgs->package replacement here — it corrupts queries like
+    # "pkgs.hello" or "pkgs.python3" which are valid Nix expressions.
+
     # Technical Terms - AI & RAG
     (r"\bol+ama\b", "Ollama"),
     (r"\bol+ma\b", "Ollama"),
@@ -36,7 +38,7 @@ _KNOWN_TYPO_REPLACEMENTS = [
     (r"\bcag\b", "CAG"),
     (r"\brag\b", "RAG"),
     (r"\bneo[\s\-]?4j\b", "Neo4j"),
-    
+
     # Portuguese - Common Typos/Missing Accents
     (r"\bdiferen[cç]a\b", "diferença"),
     (r"\bdifere[cç]a\b", "diferença"),
