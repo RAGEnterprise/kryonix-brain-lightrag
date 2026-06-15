@@ -16,6 +16,7 @@ from mcp.types import Tool, TextContent, Resource
 
 from . import rag as rag_mod
 from . import config
+from . import memory_policy
 from . import obsidian_cli
 from .index import cmd_repair_vdb, cmd_index
 
@@ -195,6 +196,31 @@ async def list_tools() -> list[Tool]:
                 "required": ["event"],
             },
         ),
+        Tool(
+            name="brain_memory_capture",
+            description="Analyze a potentially durable memory and propose it to the Vault inbox when it looks worth preserving.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "The memory candidate to preserve"},
+                    "title": {"type": "string", "description": "Optional human-friendly note title"},
+                    "source": {"type": "string", "description": "Source context or origin of the memory"},
+                    "reason": {"type": "string", "description": "Why this should be captured"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["auto", "skill_note", "user_preference", "environment_fact", "project_fact", "decision_record", "operational_rule", "other"],
+                        "default": "auto",
+                    },
+                    "force": {"type": "boolean", "default": False},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "default": [],
+                    },
+                },
+                "required": ["content"],
+            },
+        ),
 
         # ── Maintenance & Integrity Tools (Safe) ────────────────────
         Tool(
@@ -365,6 +391,50 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     headers={"X-API-Key": api_key}
                 )
                 return [TextContent(type="text", text=json.dumps(resp.json(), indent=2))]
+
+        elif name == "brain_memory_capture":
+            content = (arguments.get("content") or "").strip()
+            title = (arguments.get("title") or "").strip() or None
+            source = (arguments.get("source") or "assistant").strip() or "assistant"
+            reason = (arguments.get("reason") or "").strip()
+            kind = (arguments.get("kind") or "auto").strip() or "auto"
+            force = bool(arguments.get("force", False))
+            tags = arguments.get("tags") or []
+
+            decision = memory_policy.analyze_memory_capture(
+                content=content,
+                title=title,
+                source=source,
+                reason=reason,
+                kind=kind,
+                tags=tags,
+                force=force,
+            )
+
+            if not decision.should_capture:
+                return [TextContent(type="text", text=json.dumps({"status": "skipped", "decision": decision.to_dict()}, indent=2, ensure_ascii=False))]
+
+            note_body = memory_policy.compose_memory_note(
+                title=decision.title,
+                content=content,
+                source=source,
+                reason=decision.reason,
+                kind=decision.kind,
+                tags=decision.tags,
+                confidence=decision.confidence,
+            )
+            proposed = obsidian_cli.obsidian_propose_note(
+                title=decision.title,
+                content=note_body,
+                source=source,
+                reason=decision.reason,
+            )
+            payload = {
+                "status": "proposed",
+                "message": proposed,
+                "decision": decision.to_dict(),
+            }
+            return [TextContent(type="text", text=json.dumps(payload, indent=2, ensure_ascii=False))]
 
         # --- Maintenance (Safe) ---
         elif name == "graph_repair_dry_run":
