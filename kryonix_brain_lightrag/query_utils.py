@@ -21,22 +21,24 @@ _KNOWN_TYPO_REPLACEMENTS = [
     (r"\bserach\b", "search"),
     (r"\bask+\b", "ask"),
     (r"\bas k\b", "ask"),
-    
+
     # Technical Terms - Kryonix & Infra
     (r"\bnix[\s\-]?os\b", "NixOS"),
-    (r"\bpkgs?\b", "package"),  # Note: logic might need adjustment if distinguishing singular/plural
-    
+    (r"\bpkgs?\b", "package"),
+
     # Technical Terms - AI & RAG
+    # Negative lookbehind/lookahead for [/.] prevents corrupting path
+    # segments like /brain/cag/manifest.json or /brain/rag/storage.
     (r"\bol+ama\b", "Ollama"),
     (r"\bol+ma\b", "Ollama"),
     (r"\bllama[\s\-]?cpp\b", "llama.cpp"),
     (r"\b(light|ligth)[\s\-]?rag\b", "LightRAG"),
     (r"\braglight\b", "LightRAG"),
     (r"\bgraph[\s\-]?rag\b", "GraphRAG"),
-    (r"\bcag\b", "CAG"),
-    (r"\brag\b", "RAG"),
+    (r"(?<![/.])\.?\bcag\b(?![/.])", "CAG"),
+    (r"(?<![/.])\.?\brag\b(?![/.])", "RAG"),
     (r"\bneo[\s\-]?4j\b", "Neo4j"),
-    
+
     # Portuguese - Common Typos/Missing Accents
     (r"\bdiferen[cç]a\b", "diferença"),
     (r"\bdifere[cç]a\b", "diferença"),
@@ -68,14 +70,14 @@ def normalize_query_details(user_query: str) -> dict:
     for pattern_text, replacement in _KNOWN_TYPO_REPLACEMENTS:
         pattern = re.compile(pattern_text, re.IGNORECASE)
 
-        def replace_match(match: re.Match) -> str:
+        def replace_match(match: re.Match, _rep: str = replacement) -> str:
             value = match.group(0)
             corrections.append({
                 "from": value,
-                "to": replacement,
+                "to": _rep,
                 "reason": "known_typo",
             })
-            return replacement
+            return _rep
 
         normalized = pattern.sub(replace_match, normalized)
 
