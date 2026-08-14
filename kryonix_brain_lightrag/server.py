@@ -325,7 +325,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             mode = arguments.get("mode", "hybrid")
             lang = arguments.get("lang", "pt-BR")
             result = await rag_mod.query(query, mode=mode, lang=lang)
-            return [TextContent(type="text", text=result)]
+            if isinstance(result, dict):
+                result = json.dumps(result, indent=2, ensure_ascii=False)
+            return [TextContent(type="text", text=str(result))]
 
         elif name == "rag_stats":
             info = await rag_mod.stats()
