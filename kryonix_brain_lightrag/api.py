@@ -195,7 +195,7 @@ async def cag_ask(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
         return res
     except FileNotFoundError as e:
         logger.warning(f"Missing CAG manifest in remote cag ask: {e}")
-        return _missing_manifest_payload(e)
+        raise HTTPException(status_code=424, detail=_missing_manifest_payload(e))
     except Exception as e:
         logger.error(f"Error in remote cag ask: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -209,7 +209,7 @@ async def cag_route(req: CagQueryRequest, api_key: str = Depends(get_api_key)):
         return res
     except FileNotFoundError as e:
         logger.warning(f"Missing CAG manifest in remote cag route: {e}")
-        return _missing_manifest_payload(e)
+        raise HTTPException(status_code=424, detail=_missing_manifest_payload(e))
     except Exception as e:
         logger.error(f"Error in remote cag route: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -355,7 +355,7 @@ async def events_log(req: EventLogRequest, api_key: str = Depends(get_api_key)):
     
     log_file = log_dir / f"events-{datetime.now().strftime('%Y-%m')}.jsonl"
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry, ensure_ascii=False) + "\\n")
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
         
     return {"status": "logged"}
 
