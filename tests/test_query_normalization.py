@@ -32,3 +32,11 @@ def test_normalize_known_ptbr_typos():
 
 def test_normalize_search_and_ask_variants():
     assert normalize_query_for_retrieval("seach serach askk difereça") == "search search ask diferença"
+
+
+def test_pkgs_nix_attr_preserved():
+    """pkgs.X is canonical Nix syntax — must never be corrupted by normalization."""
+    assert normalize_query_for_retrieval("como instalar pkgs.hello no NixOS") == "como instalar pkgs.hello no NixOS"
+    assert normalize_query_for_retrieval("pkgs.git pkgs.python3") == "pkgs.git pkgs.python3"
+    assert normalize_query_for_retrieval("use pkgs em flake.nix") == "use pkgs em flake.nix"
+    assert normalize_query_for_retrieval("pkg.hello deve ser pkgs.hello") == "pkg.hello deve ser pkgs.hello"
